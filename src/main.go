@@ -18,6 +18,7 @@ type TitanRequest struct {
 	Normalize  bool   `json:"normalize,omitempty"`
 }
 
+// notice the json tags, they allow us to easily marshal json into structs to work with
 type TitanResponse struct {
 	Embedding           []float32 `json:"embedding"`
 	InputTextTokenCount int       `json:"inputTextTokenCount"`
@@ -43,7 +44,7 @@ func getEmbedding(ctx context.Context, client *bedrockruntime.Client, text strin
 	if err != nil {
 		return nil, fmt.Errorf("invoke error: %w", err)
 	}
-
+	// this is the important part!!! ISSAC and VAL, we can take type structs with meta data and use the struct
 	var response TitanResponse
 	if err := json.Unmarshal(output.Body, &response); err != nil {
 		return nil, fmt.Errorf("unmarshal error: %w", err)
