@@ -3,44 +3,73 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 )
 
-type TitanEmbeddingRequest struct {
-    InputText  string `json:"inputText"`
-    Dimensions int    `json:"dimensions,omitempty"`
-    Normalize  bool   `json:"normalize,omitempty"`
+type TitanRequest struct {
+	InputText  string `json:"inputText"`
+	Dimensions int    `json:"dimensions,omitempty"`
+	Normalize  bool   `json:"normalize,omitempty"`
 }
 
-type TitanEmbeddingResponse struct {
-    Embedding           []float32 `json:"embedding"`
-    InputTextTokenCount int       `json:"inputTextTokenCount"`
+type TitanResponse struct {
+	Embedding           []float32 `json:"embedding"`
+	InputTextTokenCount int       `json:"inputTextTokenCount"`
 }
 
 func getEmbedding(ctx context.Context, client *bedrockruntime.Client, text string) ([]float32, error) {
-    payload := TitanEmbeddingRequest{
-        InputText:  text,
-        Dimensions: 1024,
-        Normalize:  true,
-    }
-    
-    body, err := json.Marshal(payload)
-    if err != nil {
-        return nil, err
-    }
-    
-    output, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
-        ModelId:     aws.String("amazon.titan-embed-text-v2:0"),
-        ContentType: aws.String("application/json"),
-        Body:        body,
-    })
-    if err != nil {
-        return nil, err
-    }
-    
-    var response TitanEmbeddingResponse
-    err = json.Unmarshal(output.Body, &response)
-    return response.Embedding, err
+	payload := TitanRequest{
+		InputText:  text,
+		Dimensions: 1024,
+		Normalize:  true,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal error: %w", err)
+	}
+
+	output, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
+		ModelId:     aws.String("amazon.titan-embed-text-v2:0"),
+		ContentType: aws.String("application/json"),
+		Body:        body,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("invoke error: %w", err)
+	}
+
+	var response TitanResponse
+	if err := json.Unmarshal(output.Body, &response); err != nil {
+		return nil, fmt.Errorf("unmarshal error: %w", err)
+	}
+
+	fmt.Printf("Token count: %d\n", response.InputTextTokenCount)
+	fmt.Printf("Embedding dimensions: %d\n", len(response.Embedding))
+
+	return response.Embedding, nil
+}
+
+func main() {
+	text := os.Args[1]
+
+	ctx := context.Background()
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion("us-east-1"))
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	client := bedrockruntime.NewFromConfig(cfg)
+
+	embedding, err := getEmbedding(ctx, client, text)
+	if err != nil {
+		log.Fatalf("Failed to get embedding: %v", err)
+	}
+
+	fmt.Printf("\nEmbedding\n", embedding)
 }
