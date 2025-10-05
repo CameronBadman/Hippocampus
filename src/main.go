@@ -13,7 +13,7 @@ import (
 
 
 
-func main() {
+func main1() {
 	text := os.Args[1]
 
 	ctx := context.Background()
