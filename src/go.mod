@@ -1,4 +1,4 @@
-module main
+module Hippocampus
 
 go 1.25.0
 
