@@ -61,8 +61,6 @@ func (client *Client) Insert(key, text string) error {
 	
 	tree.Insert(embeddingArray, key)
 
-	
-
 	if err := client.Storage.Save(tree); err != nil {
 		log.Fatalf("save error: %v", err)
 	}
@@ -99,10 +97,10 @@ func (client *Client) Search(text string, epsilon float32) () {
 
 
 
-func (client *Client) InsertCSV(csvFilename string){
+func (client *Client) InsertCSV(csvFilename string) error {
 	file, err := os.Open(csvFilename)
 	if err != nil {
-		log.Fatalf("Error opening file: %v", err)
+		return fmt.Errorf("Error opening file: %v", err)
 	}
 	defer file.Close()
 
@@ -114,11 +112,13 @@ func (client *Client) InsertCSV(csvFilename string){
 			if err == io.EOF{
 				break
 			}
-			log.Fatalf("Error in reading line: %v", err)
+			return fmt.Errorf("Error in reading line: %v", err)
 		}
 		
-		client.Insert(record[0], record[1])
+		return fmt.Errorf(record[0], record[1])
 	}
+
+	return nil
 }
 
 
