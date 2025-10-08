@@ -114,8 +114,8 @@ func (client *Client) InsertCSV(csvFilename string) error {
 			}
 			return fmt.Errorf("Error in reading line: %v", err)
 		}
-		
-		return fmt.Errorf(record[0], record[1])
+	
+		client.Insert(record[0], record[1])
 	}
 
 	return nil
