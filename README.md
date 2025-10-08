@@ -43,6 +43,25 @@ go build -o hippocampus main.go
 ./hippocampus search -file custom.bin -text "foo" -epsilon 0.15
 ```
 
+### CSV Bulk Insert
+```bash
+./hippocampus insert-csv -csv csvFile.csv
+```
+
+#### CSV Example Format
+```csv
+"doc1","Meeting about Q4 planning"
+"doc2","Discussed project timeline"
+"doc3","Coffee with team"
+"doc4","Reviewed customer feedback on new product"
+"doc5","Brainstormed ideas for marketing campaign"
+"doc6","Follow-up email to vendor about pricing"
+"doc7","Weekly sprint retrospective discussion"
+"doc8","Finalized presentation for stakeholders"
+"doc9","One-on-one meeting with team member"
+"doc10","Analyzed quarterly sales data"
+```
+
 ## How it works
 
 1. **Embedding**: Text → AWS Titan → 512-dimensional vector
