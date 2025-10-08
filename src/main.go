@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"encoding/csv"
+	"io"
 
 	"Hippocampus/embedding"
 	"Hippocampus/storage"
@@ -20,6 +22,10 @@ func main() {
 	insertFile := insertCmd.String("file", "tree.bin", "database file")
 	insertKey := insertCmd.String("key", "", "key/identifier for the text")
 	insertText := insertCmd.String("text", "", "text to embed and store")
+	
+	csvCmd := flag.NewFlagSet("insert-csv", flag.ExitOnError)
+	csvFile := csvCmd.String("csv", "csvFile.csv", "csv file")
+	csvBinary := csvCmd.String("file", "tree.bin", "database file")
 
 	searchCmd := flag.NewFlagSet("search", flag.ExitOnError)
 	searchFile := searchCmd.String("file", "tree.bin", "database file")
@@ -47,6 +53,13 @@ func main() {
 			log.Fatal("-text is required")
 		}
 		handleSearch(*searchFile, *searchText, float32(*searchEpsilon))
+	
+	case "insert-csv":
+		csvCmd.Parse(os.Args[2:])
+		if *csvFile == "" {
+			log.Fatalf("-file is required")
+		}
+		parseCSV(*csvFile, *csvBinary)
 
 	default:
 		log.Fatalf("unknown command: %s", os.Args[1])
@@ -125,5 +138,29 @@ func handleSearch(filename, text string, epsilon float32) {
 	fmt.Printf("\nFound %d results:\n", len(results))
 	for _, node := range results {
 		fmt.Printf("  %s\n", node.Value)
+	}
+}
+
+func parseCSV(csvFilename, binaryFilename string){
+	file, err := os.Open(csvFilename)
+	if err != nil {
+		log.Fatalf("Error opening file: %v", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+
+	for {
+		record, err := reader.Read()
+		
+		if err != nil {
+			if err == io.EOF{
+				break
+			}
+			log.Fatalf("Error in reading line: %v", err)
+		}
+		
+		fmt.Printf("Record: %v\n", record)
+		go handleInsert(binaryFilename, record[0], record[1])
 	}
 }
