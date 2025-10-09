@@ -22,6 +22,7 @@ func main() {
 	searchCmd := flag.NewFlagSet("search", flag.ExitOnError)
 	searchText := searchCmd.String("text", "", "text to search for")
 	searchEpsilon := searchCmd.Float64("e", 0.1, "search tolerance")
+	searchTop := searchCmd.Int("top", 0, "limit results to top K")
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
@@ -49,7 +50,7 @@ func main() {
 		if *searchText == "" {
 			log.Fatal("-text is required")
 		}
-		client.Search(*searchText, float32(*searchEpsilon))
+		client.Search(*searchText, float32(*searchEpsilon), *searchTop)
 	
 	case "insert-csv":
 		csvCmd.Parse(os.Args[2:])
