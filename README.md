@@ -37,6 +37,11 @@ go build -o hippocampus main.go
 ./hippocampus search -text "hi there" -epsilon 0.2
 ```
 
+### Top-K search
+```bash
+./hippocampus search -text "hi there" -epsilon 0.2 -top 5
+```
+
 ### Custom database file
 ```bash
 ./hippocampus insert -file custom.bin -key "doc2" -text "foo bar"
@@ -72,6 +77,7 @@ go build -o hippocampus main.go
 ## Configuration
 
 - **Epsilon**: Controls search tolerance (0.1 = strict, 0.5 = loose)
+- **Top-K**: Limit results to the K most relevant nodes (-top flag)
 - **Region**: Hardcoded to `us-east-1` (Bedrock availability)
 - **Model**: `amazon.titan-embed-text-v2:0` (512 dimensions)
 
@@ -139,3 +145,4 @@ type Tree struct {
 - **Writes rewrite entire file**: Optimized for read-heavy workloads
 - **No concurrent writes**: Single-writer model
 - **Epsilon must be tuned**: No automatic relevance ranking
+- **Squared Euclidean distance**: Only relative ranking matters, absolute value is not normalized

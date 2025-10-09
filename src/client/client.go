@@ -71,7 +71,7 @@ func (client *Client) Insert(key, text string) error {
 
 
 
-func (client *Client) Search(text string, epsilon float32) () {
+func (client *Client) Search(text string, epsilon float32, topK int) () {
 	ctx := context.Background()
 
 	embeddingSlice, err := embedding.GetEmbedding(ctx, client.Bedrock, text)
@@ -87,11 +87,11 @@ func (client *Client) Search(text string, epsilon float32) () {
 		log.Fatalf("tree loading error: %v", err)
 	}
 
-	results := tree.Search(embeddingArray, epsilon)
+	results := tree.Search(embeddingArray, epsilon, topK)
 
 	fmt.Printf("\nFound %d results:\n", len(results))
 	for _, node := range results {
-		fmt.Printf("  %s\n", node.Value)
+		fmt.Printf("  %s (score: %.4f)\n", node.Node.Value, node.Score)
 	}
 }
 

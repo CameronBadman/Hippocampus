@@ -11,6 +11,10 @@ type Tree struct {
 	Nodes []Node
 	Index [512][]int32
 }
+type SearchResult struct {
+	Node  Node
+	Score float32 // smaller = closer
+}
 
 func NewTree() *Tree {
 	return &Tree{
@@ -48,7 +52,7 @@ func (t *Tree) RebuildIndex() {
 	}
 }
 
-func (t *Tree) Search(query [512]float32, epsilon float32) []Node {
+func (t *Tree) Search(query [512]float32, epsilon float32, topK int) []SearchResult {
 	if len(t.Nodes) == 0 {
 		return nil
 	}
@@ -67,11 +71,30 @@ func (t *Tree) Search(query [512]float32, epsilon float32) []Node {
 			candidateSet[nodeIdx]++
 		}
 	}
-	results := make([]Node, 0)
+	results := make([]SearchResult, 0)
 	for nodeIdx, count := range candidateSet {
 		if count == 512 {
-			results = append(results, t.Nodes[nodeIdx])
+			d := squaredDistance(query, t.Nodes[nodeIdx].Key)
+            results = append(results, SearchResult{
+                Node:  t.Nodes[nodeIdx],
+                Score: d,
+            })
 		}
 	}
+	sort.Slice(results, func(i, j int) bool {
+        return results[i].Score < results[j].Score
+    })
+    if topK > 0 && len(results) > topK {
+        results = results[:topK]
+    }
 	return results
+}
+
+func squaredDistance(a, b [512]float32) float32 {
+	var sum float32
+	for i := 0; i < 512; i++ {
+		diff := a[i] - b[i]
+		sum += diff * diff
+	}
+	return sum
 }
