@@ -1,6 +1,9 @@
 package types
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 type Node struct {
 	Key   [512]float32
@@ -56,37 +59,45 @@ func (t *Tree) Search(query [512]float32, epsilon float32, topK int) []SearchRes
 	if len(t.Nodes) == 0 {
 		return nil
 	}
+	
 	candidateSet := make(map[int32]int)
 	for dim := 0; dim < 512; dim++ {
 		minVal := query[dim] - epsilon
 		maxVal := query[dim] + epsilon
+		
 		startIdx := sort.Search(len(t.Index[dim]), func(i int) bool {
 			return t.Nodes[t.Index[dim][i]].Key[dim] >= minVal
 		})
 		endIdx := sort.Search(len(t.Index[dim]), func(i int) bool {
 			return t.Nodes[t.Index[dim][i]].Key[dim] > maxVal
 		})
+		
 		for i := startIdx; i < endIdx; i++ {
-			nodeIdx := t.Index[dim][i]
-			candidateSet[nodeIdx]++
+			candidateSet[t.Index[dim][i]]++
 		}
 	}
+	
 	results := make([]SearchResult, 0)
+	threshold := int(math.Ceil(float64(512) * 0.99))
+	
 	for nodeIdx, count := range candidateSet {
-		if count == 512 {
+		if count >= threshold {
 			d := squaredDistance(query, t.Nodes[nodeIdx].Key)
-            results = append(results, SearchResult{
-                Node:  t.Nodes[nodeIdx],
-                Score: d,
-            })
+			results = append(results, SearchResult{
+				Node:  t.Nodes[nodeIdx],
+				Score: d,
+			})
 		}
 	}
+	
 	sort.Slice(results, func(i, j int) bool {
-        return results[i].Score < results[j].Score
-    })
-    if topK > 0 && len(results) > topK {
-        results = results[:topK]
-    }
+		return results[i].Score < results[j].Score
+	})
+	
+	if topK > 0 && len(results) > topK {
+		results = results[:topK]
+	}
+	
 	return results
 }
 
