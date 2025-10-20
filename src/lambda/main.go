@@ -23,7 +23,7 @@ func main() {
 
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
-		region = "us-east-1"
+		region = "ap-southeast-2"
 	}
 
 	storageManager, err := storage.NewManager(efsPath, s3Bucket, region)
