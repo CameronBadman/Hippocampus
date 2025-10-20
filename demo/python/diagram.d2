@@ -1,0 +1,25 @@
+Agent (Bedrock): {
+  shape: rectangle
+}
+
+API Gateway: {
+  shape: rectangle
+}
+
+Lambda (Pure): {
+  shape: rectangle
+  label: "Lambda\n(Stateless)"
+}
+
+EFS: {
+  shape: cylinder
+}
+
+S3: {
+  shape: cylinder
+}
+
+Agent (Bedrock) -> API Gateway
+API Gateway -> Lambda (Pure)
+Lambda (Pure) -> EFS: "Hot access"
+Lambda (Pure) -> S3: "Durability"

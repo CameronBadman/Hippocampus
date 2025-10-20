@@ -1,8 +1,8 @@
 package client
 
 import (
-	"Hippocampus/embedding"
-	"Hippocampus/storage"
+	"Hippocampus/src/embedding"
+	"Hippocampus/src/storage"
 	"context"
 	"encoding/csv"
 	"fmt"
@@ -59,7 +59,7 @@ func (client *Client) Insert(key, text string) error {
 		return err
 	}
 	
-	tree.Insert(embeddingArray, key)
+	tree.Insert(embeddingArray, text)
 
 	if err := client.Storage.Save(tree); err != nil {
 		log.Fatalf("save error: %v", err)
@@ -71,28 +71,34 @@ func (client *Client) Insert(key, text string) error {
 
 
 
-func (client *Client) Search(text string, epsilon float32) () {
+func (client *Client) Search(text string, epsilon float32, threshold float32, topK int) ([]string, error) {
 	ctx := context.Background()
-
 	embeddingSlice, err := embedding.GetEmbedding(ctx, client.Bedrock, text)
 	if err != nil {
-		log.Fatalf("embedding error: %v", err)
+		return nil, fmt.Errorf("embedding error: %v", err)
 	}
-
+	
 	var embeddingArray [512]float32
 	copy(embeddingArray[:], embeddingSlice)
-
+	
 	tree, err := client.Storage.Load()
 	if err != nil {
-		log.Fatalf("tree loading error: %v", err)
+		return nil, fmt.Errorf("tree loading error: %v", err)
 	}
-
-	results := tree.Search(embeddingArray, epsilon)
-
-	fmt.Printf("\nFound %d results:\n", len(results))
-	for _, node := range results {
-		fmt.Printf("  %s\n", node.Value)
+	
+	results := tree.Search(embeddingArray, epsilon, threshold, topK)
+	
+	values := make([]string, len(results))
+	for i, node := range results {
+		values[i] = node.Value
 	}
+	
+	fmt.Printf("\nFound %d results (top %d, threshold %.2f):\n", len(results), topK, threshold)
+	for _, value := range values {
+		fmt.Printf("  %s\n", value)
+	}
+	
+	return values, nil
 }
 
 

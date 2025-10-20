@@ -1,0 +1,119 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hippocampus Memory API",
+    "version": "1.0.0",
+    "description": "Persistent vector memory system for AI agents"
+  },
+  "servers": [
+    {
+      "url": "https://jpdbd7nyd7.execute-api.us-east-1.amazonaws.com"
+    }
+  ],
+  "paths": {
+    "/insert": {
+      "post": {
+        "operationId": "insertMemory",
+        "summary": "Store a new memory",
+        "description": "Stores text with a descriptive key for semantic retrieval later",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["agent_id", "key", "text"],
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the agent"
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Descriptive label for this memory (will be embedded for search)"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "The actual content to remember"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Memory stored successfully"
+          }
+        }
+      }
+    },
+    "/search": {
+      "post": {
+        "operationId": "searchMemory",
+        "summary": "Search for relevant memories",
+        "description": "Searches stored memories using semantic similarity with ranked results",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["agent_id", "text"],
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the agent"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Query text to search for"
+                  },
+                  "epsilon": {
+                    "type": "number",
+                    "description": "Search radius for initial filtering (0.1-0.5)",
+                    "default": 0.3
+                  },
+                  "threshold": {
+                    "type": "number",
+                    "description": "Minimum similarity score (0.0-1.0, higher is stricter)",
+                    "default": 0.5
+                  },
+                  "top_k": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return",
+                    "default": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results returned, ranked by similarity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Array of matching memory texts, sorted by relevance"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
