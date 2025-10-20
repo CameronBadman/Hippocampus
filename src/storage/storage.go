@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"Hippocampus/types"
+	"Hippocampus/src/types"
 	"encoding/binary"
 	"io"
 	"os"
