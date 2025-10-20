@@ -1,288 +1,268 @@
 import boto3
 import json
 import requests
-from typing import List, Dict
 
 bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
 
-HIPPOCAMPUS_API = "https://jpdbd7nyd7.execute-api.us-east-1.amazonaws.com"
-AGENT_ID = "agentcore_demo"
+HIPPOCAMPUS_API = "https://z8ba4k81gf.execute-api.ap-southeast-2.amazonaws.com"
 
-SYSTEM_PROMPT = """You are an intelligent memory management agent with two distinct modes:
+def test_agent_curate():
+    print("🤖 AI Agent → AI Agent Curation Demo")
+    print("=" * 70)
+    print("\nThis demonstrates an AI agent calling Hippocampus's internal")
+    print("AI agent to curate information autonomously.\n")
+    
+    system_prompt = """You are a personal assistant that helps users manage their information.
 
-1. REASONING MODE: When the user shares information, you analyze it deeply to:
-   - Identify multiple distinct facts or topics
-   - Generate specific, searchable key names for each fact
-   - Decide which information is worth storing
-   - Create multiple targeted memories instead of one large memory
+When a user shares personal information with you, use the agent_curate tool to 
+store it in Hippocampus. The database has an internal AI agent that will 
+intelligently decompose the information into searchable memories.
 
-2. RESPONSE MODE: After storing memories, respond naturally to the user.
+When asked questions about the user, use search_memory to retrieve relevant information.
 
-Key Generation Guidelines:
-- Use descriptive, searchable keys like "favorite_food_pizza" not just "food"
-- Create separate memories for separate facts
-- Use consistent naming: category_subcategory_detail
-- Examples: "travel_history_italy_2024", "dietary_restriction_peanut_allergy", "work_preference_remote"
+You decide:
+- Which information is important enough to store
+- The importance level (high/medium/low)
+- How much delay between insertions (timeout_ms)
+- Search parameters (epsilon, threshold, top_k)
 
-Search Parameter Guidelines:
-You have full control over search precision. Adapt based on the query:
+Be conversational and explain what you're doing."""
 
-- Safety-critical queries (allergies, medical):
-  epsilon=0.15, threshold=0.7, top_k=3
-  
-- Exact lookups (specific facts):
-  epsilon=0.175, threshold=0.6, top_k=1-3
-  
-- General queries (exploring related info):
-  epsilon=0.2, threshold=0.5, top_k=5
-  
-- Broad discovery (finding anything relevant):
-  epsilon=0.4, threshold=0.4, top_k=10
-
-Use your judgment. If a search returns nothing, you can retry with relaxed parameters.
-
-Always explain what you're storing and why."""
-
-tools = [
-    {
-        "toolSpec": {
-            "name": "insert_memory",
-            "description": "Store a single memory with a descriptive key. Call this multiple times for multiple facts.",
-            "inputSchema": {
-                "json": {
-                    "type": "object",
-                    "properties": {
-                        "key": {
-                            "type": "string",
-                            "description": "Specific, searchable key using format: category_subcategory_detail"
+    tools = [
+        {
+            "toolSpec": {
+                "name": "agent_curate",
+                "description": "Send information to Hippocampus's internal AI agent for intelligent curation. The agent will decompose text into discrete, searchable memories.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "agent_id": {
+                                "type": "string",
+                                "description": "Unique identifier for the user"
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "The information to curate and store"
+                            },
+                            "importance": {
+                                "type": "string",
+                                "description": "How thoroughly to extract facts: 'high' (extract everything), 'medium' (key facts), 'low' (critical only)",
+                                "enum": ["high", "medium", "low"]
+                            },
+                            "model_id": {
+                                "type": "string",
+                                "description": "Which model the internal agent should use",
+                                "default": "us.amazon.nova-lite-v1:0"
+                            },
+                            "bedrock_region": {
+                                "type": "string",
+                                "description": "AWS region where Bedrock should run",
+                                "default": "us-east-1"
+                            },
+                            "timeout_ms": {
+                                "type": "integer",
+                                "description": "Milliseconds between each memory insertion (prevents rate limiting)",
+                                "default": 500
+                            }
                         },
-                        "text": {
-                            "type": "string",
-                            "description": "The actual information to remember"
+                        "required": ["agent_id", "text", "importance"]
+                    }
+                }
+            }
+        },
+        {
+            "toolSpec": {
+                "name": "search_memory",
+                "description": "Search for previously stored memories using semantic similarity",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "agent_id": {
+                                "type": "string",
+                                "description": "User identifier"
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "What to search for"
+                            },
+                            "epsilon": {
+                                "type": "number",
+                                "description": "Search radius (0.1-0.5)",
+                                "default": 0.3
+                            },
+                            "threshold": {
+                                "type": "number",
+                                "description": "Minimum similarity (0.0-1.0)",
+                                "default": 0.5
+                            },
+                            "top_k": {
+                                "type": "integer",
+                                "description": "Maximum results",
+                                "default": 5
+                            }
                         },
-                        "reasoning": {
-                            "type": "string",
-                            "description": "Brief explanation of why this key was chosen"
-                        }
-                    },
-                    "required": ["key", "text", "reasoning"]
+                        "required": ["agent_id", "text"]
+                    }
                 }
             }
         }
-    },
-    {
-        "toolSpec": {
-            "name": "search_memory",
-            "description": "Search for previously stored information using semantic similarity. You control search precision with epsilon, threshold, and top_k parameters.",
-            "inputSchema": {
-                "json": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "What to search for"
-                        },
-                        "reasoning": {
-                            "type": "string",
-                            "description": "Why you're searching for this"
-                        },
-                        "epsilon": {
-                            "type": "number",
-                            "description": "Search radius (0.1-0.5). Lower = stricter matching. Use 0.2 for exact matches, 0.4 for broad searches.",
-                            "default": 0.3
-                        },
-                        "threshold": {
-                            "type": "number",
-                            "description": "Minimum similarity score (0.0-1.0). Higher = stricter. Use 0.7+ for safety-critical, 0.4-0.6 for general searches.",
-                            "default": 0.5
-                        },
-                        "top_k": {
-                            "type": "integer",
-                            "description": "Maximum number of results (1-10). Use 1-3 for precise answers, 5-10 for comprehensive searches.",
-                            "default": 5
-                        }
-                    },
-                    "required": ["query", "reasoning"]
-                }
-            }
-        }
-    }
-]
+    ]
 
-def call_hippocampus(endpoint: str, payload: Dict) -> Dict:
-    response = requests.post(f"{HIPPOCAMPUS_API}/{endpoint}", json=payload)
-    return response.json()
+    def handle_tool_use(tool_name, tool_input):
+        if tool_name == "agent_curate":
+            print("\n  🔧 Agent calling Hippocampus internal agent...")
+            print(f"     Agent ID: {tool_input['agent_id']}")
+            print(f"     Importance: {tool_input['importance']}")
+            print(f"     Model: {tool_input.get('model_id', 'us.amazon.nova-lite-v1:0')}")
+            print(f"     Region: {tool_input.get('bedrock_region', 'us-east-1')}")
+            print(f"     Timeout: {tool_input.get('timeout_ms', 500)}ms\n")
+            
+            response = requests.post(f"{HIPPOCAMPUS_API}/agent-curate", json=tool_input)
+            result = response.json()
+            
+            if response.status_code == 200:
+                data = result.get("data", {})
+                print(f"  ✓ Internal agent created {data.get('memories_created')} memories:")
+                for mem in data.get("memories", [])[:5]:
+                    print(f"     • {mem['key']}: {mem['text'][:50]}...")
+                if data.get('memories_created', 0) > 5:
+                    print(f"     ... and {data.get('memories_created') - 5} more")
+                print()
+                return result
+            else:
+                print(f"  ✗ Curation failed: {result.get('error')}\n")
+                return {"error": result.get("error")}
+        
+        elif tool_name == "search_memory":
+            print("\n  🔍 Agent searching memories...")
+            print(f"     Query: {tool_input['text']}")
+            print(f"     Parameters: epsilon={tool_input.get('epsilon', 0.3)}, threshold={tool_input.get('threshold', 0.5)}, top_k={tool_input.get('top_k', 5)}\n")
+            
+            response = requests.post(f"{HIPPOCAMPUS_API}/search", json=tool_input)
+            result = response.json()
+            
+            if response.status_code == 200:
+                memories = result.get("data", [])
+                print(f"  ✓ Found {len(memories)} relevant memories:")
+                for mem in memories[:3]:
+                    print(f"     • {mem}")
+                if len(memories) > 3:
+                    print(f"     ... and {len(memories) - 3} more")
+                print()
+                return {"memories": memories, "count": len(memories)}
+            else:
+                print(f"  ✗ Search failed\n")
+                return {"error": result.get("error"), "memories": []}
+        
+        return {"error": "Unknown tool"}
 
-def handle_tool_use(tool_name: str, tool_input: Dict) -> Dict:
-    if tool_name == "insert_memory":
-        result = call_hippocampus("insert", {
-            "agent_id": AGENT_ID,
-            "key": tool_input["key"],
-            "text": tool_input["text"]
-        })
-        return {
-            "success": True,
-            "key": tool_input["key"],
-            "reasoning": tool_input.get("reasoning", ""),
-            "message": "Memory stored successfully"
-        }
-    
-    elif tool_name == "search_memory":
-        epsilon = tool_input.get("epsilon", 0.3)
-        threshold = tool_input.get("threshold", 0.5)
-        top_k = tool_input.get("top_k", 5)
-        
-        result = call_hippocampus("search", {
-            "agent_id": AGENT_ID,
-            "text": tool_input["query"],
-            "epsilon": epsilon,
-            "threshold": threshold,
-            "top_k": top_k
-        })
-        
-        memories = result.get("data", [])
-        
-        return {
-            "found": len(memories) > 0,
-            "count": len(memories),
-            "memories": memories,
-            "reasoning": tool_input.get("reasoning", ""),
-            "search_params": {
-                "epsilon": epsilon,
-                "threshold": threshold,
-                "top_k": top_k
-            }
-        }
-    
-    return {"error": "Unknown tool"}
-
-def chat(user_message: str, conversation_history: List[Dict]) -> str:
-    conversation_history.append({
-        "role": "user",
-        "content": [{"text": user_message}]
-    })
-    
-    response = bedrock.converse(
-        modelId="us.amazon.nova-lite-v1:0",
-        messages=conversation_history,
-        system=[{"text": SYSTEM_PROMPT}],
-        toolConfig={"tools": tools}
-    )
-    
-    tool_use_count = 0
-    
-    while response['stopReason'] == 'tool_use':
-        tool_requests = [c for c in response['output']['message']['content'] if 'toolUse' in c]
-        
-        tool_results = []
-        for tool_request in tool_requests:
-            tool_use = tool_request['toolUse']
-            tool_use_count += 1
-            
-            print(f"\n Tool Call #{tool_use_count}: {tool_use['name']}")
-            print(f"     Input: {json.dumps(tool_use['input'], indent=6)}")
-            
-            result = handle_tool_use(tool_use['name'], tool_use['input'])
-            
-            print(f"     Result: {json.dumps(result, indent=6)}")
-            
-            tool_results.append({
-                "toolResult": {
-                    "toolUseId": tool_use['toolUseId'],
-                    "content": [{"json": result}]
-                }
-            })
-        
-        conversation_history.append(response['output']['message'])
+    def chat(user_message, conversation_history):
         conversation_history.append({
             "role": "user",
-            "content": tool_results
+            "content": [{"text": user_message}]
         })
         
         response = bedrock.converse(
             modelId="us.amazon.nova-lite-v1:0",
             messages=conversation_history,
-            system=[{"text": SYSTEM_PROMPT}],
+            system=[{"text": system_prompt}],
             toolConfig={"tools": tools}
         )
-    
-    assistant_message = response['output']['message']
-    conversation_history.append(assistant_message)
-    
-    return assistant_message['content'][0]['text']
+        
+        while response['stopReason'] == 'tool_use':
+            tool_requests = [c for c in response['output']['message']['content'] if 'toolUse' in c]
+            
+            tool_results = []
+            for tool_request in tool_requests:
+                tool_use = tool_request['toolUse']
+                result = handle_tool_use(tool_use['name'], tool_use['input'])
+                
+                tool_results.append({
+                    "toolResult": {
+                        "toolUseId": tool_use['toolUseId'],
+                        "content": [{"json": result}]
+                    }
+                })
+            
+            conversation_history.append(response['output']['message'])
+            conversation_history.append({
+                "role": "user",
+                "content": tool_results
+            })
+            
+            response = bedrock.converse(
+                modelId="us.amazon.nova-lite-v1:0",
+                messages=conversation_history,
+                system=[{"text": system_prompt}],
+                toolConfig={"tools": tools}
+            )
+        
+        assistant_message = response['output']['message']
+        conversation_history.append(assistant_message)
+        
+        return assistant_message['content'][0]['text']
 
-
-def demo_scenario():
-    print(" Hippocampus AgentCore Demo")
-    print("=" * 60)
-    print("\nThis demo shows intelligent memory decomposition.")
-    print("The agent will analyze input and create multiple targeted memories.\n")
-    
     conversation = []
     
-    scenarios = [
-        {
-            "description": "Dense personal profile with 15+ extractable facts",
-            "input": "My name is Sarah Chen, I'm 34 years old, software engineer at Google working on cloud infrastructure. I live in Seattle with my husband Michael who's a high school math teacher. We have two kids - Emma is 5 and has a severe peanut allergy, Jake is 8 and plays competitive soccer. I'm training for the Seattle marathon in November, currently running 40 miles a week. I'm vegetarian but eat fish occasionally, allergic to shellfish and latex. I went to MIT for undergrad, got my masters at Stanford. My parents live in San Francisco, I try to visit them monthly. I love sci-fi novels, currently reading the Three Body Problem series. I speak Mandarin fluently, learning Spanish with the kids. We have a golden retriever named Cosmo who's 3 years old. I'm trying to quit coffee, down to one cup in the morning. My favorite programming language is Rust, but I work mostly in Go and Python at Google. I play piano, been taking lessons for 2 years now."
-        },
-        {
-            "description": "Targeted query that should retrieve subset",
-            "input": "What programming languages do I use?"
-        },
-        {
-            "description": "Different targeted query",
-            "input": "Tell me about my family"
-        },
-        {
-            "description": "Safety-critical query",
-            "input": "Can my kids eat peanut butter sandwiches?"
-        }
+    print("=" * 70)
+    print("PART 1: Agent-to-Agent Curation")
+    print("=" * 70)
+    
+    user_input_1 = """Hey, I wanted to update you on my life. My name is Sarah Chen, 
+I'm 34 years old, and I work as a software engineer at Google focusing on cloud 
+infrastructure. I live in Seattle with my husband Michael, who teaches high school 
+math. We have two kids - Emma is 5 and has a severe peanut allergy, and Jake is 8 
+and plays competitive soccer. I'm currently training for the Seattle marathon in 
+November, running about 40 miles a week. I'm mostly vegetarian but eat fish 
+occasionally, and I'm allergic to shellfish and latex. I went to MIT for undergrad 
+and got my master's at Stanford. My parents live in San Francisco, and I try to 
+visit them monthly. I love sci-fi novels - currently reading the Three Body Problem 
+series. I speak Mandarin fluently and I'm learning Spanish with the kids. We have 
+a golden retriever named Cosmo who's 3 years old. I'm trying to quit coffee, down 
+to one cup in the morning. My favorite programming language is Rust, but I mostly 
+work in Go and Python at Google. Oh, and I've been taking piano lessons for about 
+2 years now."""
+    
+    print(f"\nUser: {user_input_1[:150]}...\n")
+    
+    response = chat(user_input_1, conversation)
+    
+    print(f"Assistant: {response}")
+    
+    input("\n[Press Enter to continue...]")
+    
+    print("\n" + "=" * 70)
+    print("PART 2: Querying the Curated Memories")
+    print("=" * 70)
+    
+    queries = [
+        "What programming languages does Sarah use?",
+        "Tell me about Sarah's family",
+        "Does Sarah have any allergies I should know about?"
     ]
     
-    for i, scenario in enumerate(scenarios, 1):
-        print(f"\n{'='*60}")
-        print(f"Scenario {i}: {scenario['description']}")
-        print(f"{'='*60}")
-        print(f"\nUser: {scenario['input']}")
+    for i, query in enumerate(queries, 1):
+        print(f"\nQuery {i}: {query}\n")
+        response = chat(query, conversation)
+        print(f"Assistant: {response}")
         
-        response = chat(scenario['input'], conversation)
-        
-        print(f"\nAgent: {response}")
-        
-        if i < len(scenarios):
-            input("\n[Press Enter to continue to next scenario...]")
+        if i < len(queries):
+            input("\n[Press Enter for next query...]")
     
-    print("\n" + "="*60)
-    print("Demo complete! Notice how the agent:")
-    print("  1. Decomposed one input into multiple memories")
-    print("  2. Used descriptive, searchable keys")
-    print("  3. Retrieved relevant memories when needed")
-    print("  4. Adapted search parameters based on query type")
-    print("="*60)
-
-def interactive_mode():
-    print("Hippocampus AgentCore - Interactive Mode")
-    print("=" * 60)
-    print("The agent will intelligently manage memories.")
-    print("Type 'quit' to exit.\n")
-    
-    conversation = []
-    
-    while True:
-        user_input = input("\nYou: ")
-        if user_input.lower() in ['quit', 'exit']:
-            break
-        
-        response = chat(user_input, conversation)
-        print(f"\nAgent: {response}")
-
-def main():
-    import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == '--interactive':
-        interactive_mode()
-    else:
-        demo_scenario()
+    print("\n" + "=" * 70)
+    print("✅ DEMONSTRATION COMPLETE")
+    print("=" * 70)
+    print("\nWhat just happened:")
+    print("  1. External AI agent (Bedrock Nova) received user information")
+    print("  2. Agent decided to use agent_curate tool")
+    print("  3. Hippocampus's internal AI agent analyzed the text")
+    print("  4. Internal agent decomposed info into discrete memories")
+    print("  5. External agent then asked specific questions")
+    print("  6. Retrieved precise, relevant memories for each query")
+    print("\n💡 This is AI agents orchestrating AI agents - autonomous curation!")
+    print("=" * 70)
 
 if __name__ == "__main__":
-    main()
+    test_agent_curate()

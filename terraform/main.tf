@@ -455,6 +455,12 @@ resource "aws_apigatewayv2_route" "insert_csv" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
+resource "aws_apigatewayv2_route" "agent_curate" {
+  api_id    = aws_apigatewayv2_api.hippocampus_api.id
+  route_key = "POST /agent-curate"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
 resource "aws_lambda_permission" "api_gateway" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
