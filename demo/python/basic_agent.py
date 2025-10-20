@@ -5,7 +5,7 @@ import time
 
 bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
 
-HIPPOCAMPUS_API = ""
+HIPPOCAMPUS_API = "https://jpdbd7nyd7.execute-api.us-east-1.amazonaws.com"
 AGENT_ID = "safety_demo_parent"
 
 SYSTEM_PROMPT = """You are a helpful assistant with access to long-term memory about the user and their family.

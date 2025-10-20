@@ -6,7 +6,7 @@ from typing import List, Dict
 
 bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
 
-HIPPOCAMPUS_API = ""
+HIPPOCAMPUS_API = "https://jpdbd7nyd7.execute-api.us-east-1.amazonaws.com"
 AGENT_ID = "customer_support_agent"
 
 SYSTEM_PROMPT = """You are an AI customer support agent for TechCorp, a software company.
@@ -273,9 +273,9 @@ def populate_knowledge_base():
 
     print(f"Inserting {len(sample_articles)} articles (simulating 200 total)...\n")
 
-    # Insert sample articles
-    for i, (key, text) in enumerate(sample_articles[:10], 1):  # Insert first 10 for demo
-        print(f"[{i}/10] Inserting: {key[:50]}...")
+    # Insert all sample articles instead of just the first 10
+    for i, (key, text) in enumerate(sample_articles, 1):
+        print(f"[{i}/{len(sample_articles)}] Inserting: {key[:50]}...")
         call_hippocampus("insert", {
             "agent_id": AGENT_ID,
             "key": key,

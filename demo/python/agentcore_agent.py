@@ -5,7 +5,7 @@ from typing import List, Dict
 
 bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
 
-HIPPOCAMPUS_API = ""
+HIPPOCAMPUS_API = "https://jpdbd7nyd7.execute-api.us-east-1.amazonaws.com"
 AGENT_ID = "agentcore_demo"
 
 SYSTEM_PROMPT = """You are an intelligent memory management agent with two distinct modes:
