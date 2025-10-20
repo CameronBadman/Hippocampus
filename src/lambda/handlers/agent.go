@@ -14,11 +14,12 @@ import (
 )
 
 type AgentCurateRequest struct {
-	AgentID    string `json:"agent_id"`
-	Text       string `json:"text"`
-	ModelID    string `json:"model_id"`
-	Importance string `json:"importance"`
-	Timeout    int    `json:"timeout_ms"`
+	AgentID       string `json:"agent_id"`
+	Text          string `json:"text"`
+	ModelID       string `json:"model_id"`
+	BedrockRegion string `json:"bedrock_region"`
+	Importance    string `json:"importance"`
+	Timeout       int    `json:"timeout_ms"`
 }
 
 type CurationResult struct {
@@ -39,6 +40,10 @@ func (h *Handler) handleAgentCurate(request events.APIGatewayProxyRequest) (even
 
 	if req.ModelID == "" {
 		req.ModelID = "us.amazon.nova-lite-v1:0"
+	}
+
+	if req.BedrockRegion == "" {
+		req.BedrockRegion = "us-east-1"
 	}
 
 	if req.Importance == "" {
@@ -84,7 +89,7 @@ Return ONLY valid JSON array, no markdown:
 
 	userPrompt := fmt.Sprintf("Analyze and extract memories from:\n\n%s", req.Text)
 
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(h.storage.GetRegion()))
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(req.BedrockRegion))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
