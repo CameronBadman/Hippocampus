@@ -24,7 +24,7 @@ func (h *Handler) Route(ctx context.Context, request events.APIGatewayProxyReque
 	if request.HTTPMethod != "POST" {
 		return errorResponse(400, "only POST method is supported")
 	}
-
+	
 	switch request.Path {
 	case "/insert":
 		return h.handleInsert(request)
@@ -32,10 +32,14 @@ func (h *Handler) Route(ctx context.Context, request events.APIGatewayProxyReque
 		return h.handleSearch(request)
 	case "/insert-csv":
 		return h.handleInsertCSV(request)
+	case "/agent-curate":
+		return h.handleAgentCurate(request)
 	default:
 		return errorResponse(404, "unknown endpoint")
 	}
 }
+
+
 
 func (h *Handler) handleInsert(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var req InsertRequest

@@ -8,6 +8,7 @@ import (
 	"sync"
 )
 
+// In storage/manager.go - NO awsConfig field
 type Manager struct {
 	efsPath      string
 	s3Bucket     string
@@ -17,16 +18,17 @@ type Manager struct {
 	s3Sync       *S3Sync
 }
 
+// NewManager stays simple
 func NewManager(efsPath, s3Bucket, region string) (*Manager, error) {
 	if err := os.MkdirAll(efsPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create EFS directory: %w", err)
 	}
-
+	
 	s3Sync, err := NewS3Sync(s3Bucket, region)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 sync: %w", err)
 	}
-
+	
 	return &Manager{
 		efsPath:  efsPath,
 		s3Bucket: s3Bucket,
@@ -34,6 +36,11 @@ func NewManager(efsPath, s3Bucket, region string) (*Manager, error) {
 		clients:  make(map[string]*client.Client),
 		s3Sync:   s3Sync,
 	}, nil
+}
+
+// Add method to get region
+func (m *Manager) GetRegion() string {
+	return m.region
 }
 
 func (m *Manager) getClient(agentID string) (*client.Client, error) {
