@@ -63,7 +63,7 @@ Be conversational and explain what you're doing."""
                             "timeout_ms": {
                                 "type": "integer",
                                 "description": "Milliseconds between each memory insertion (prevents rate limiting)",
-                                "default": 500
+                                "default": 50
                             }
                         },
                         "required": ["agent_id", "text", "importance"]
@@ -117,7 +117,7 @@ Be conversational and explain what you're doing."""
             print(f"     Importance: {tool_input['importance']}")
             print(f"     Model: {tool_input.get('model_id', 'us.amazon.nova-lite-v1:0')}")
             print(f"     Region: {tool_input.get('bedrock_region', 'us-east-1')}")
-            print(f"     Timeout: {tool_input.get('timeout_ms', 500)}ms\n")
+            print(f"     Timeout: {tool_input.get('timeout_ms', 50)}ms\n")
             
             response = requests.post(f"{HIPPOCAMPUS_API}/agent-curate", json=tool_input)
             result = response.json()

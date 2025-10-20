@@ -3,7 +3,7 @@
   "info": {
     "title": "Hippocampus Memory API",
     "version": "1.0.0",
-    "description": "Persistent vector memory system for AI agents"
+    "description": "Vector database for AI agent memory - supports both agent-controlled and database-curated patterns"
   },
   "servers": [
     {
@@ -14,8 +14,8 @@
     "/insert": {
       "post": {
         "operationId": "insertMemory",
-        "summary": "Store a new memory",
-        "description": "Stores text with a descriptive key for semantic retrieval later",
+        "summary": "Store a new memory (agent-controlled)",
+        "description": "Agent directly stores text with a descriptive key for semantic retrieval",
         "requestBody": {
           "required": true,
           "content": {
@@ -30,7 +30,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Descriptive label for this memory (will be embedded for search)"
+                    "description": "Descriptive label for this memory"
                   },
                   "text": {
                     "type": "string",
@@ -52,7 +52,7 @@
       "post": {
         "operationId": "searchMemory",
         "summary": "Search for relevant memories",
-        "description": "Searches stored memories using semantic similarity with ranked results",
+        "description": "Searches stored memories using semantic similarity with agent-controlled precision parameters",
         "requestBody": {
           "required": true,
           "content": {
@@ -71,18 +71,24 @@
                   },
                   "epsilon": {
                     "type": "number",
-                    "description": "Search radius for initial filtering (0.1-0.5)",
-                    "default": 0.3
+                    "description": "Search radius (0.1-0.5). Lower = stricter. Default 0.3",
+                    "default": 0.3,
+                    "minimum": 0.1,
+                    "maximum": 0.5
                   },
                   "threshold": {
                     "type": "number",
-                    "description": "Minimum similarity score (0.0-1.0, higher is stricter)",
-                    "default": 0.5
+                    "description": "Minimum similarity score (0.0-1.0). Higher = stricter. Default 0.5",
+                    "default": 0.5,
+                    "minimum": 0.0,
+                    "maximum": 1.0
                   },
                   "top_k": {
                     "type": "integer",
-                    "description": "Maximum number of results to return",
-                    "default": 5
+                    "description": "Maximum number of results to return. Default 5",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 100
                   }
                 }
               }
@@ -111,6 +117,136 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/agent-curate": {
+      "post": {
+        "operationId": "agentCurate",
+        "summary": "Internal AI agent curates memories",
+        "description": "Send text to Hippocampus's internal AI agent for intelligent decomposition into discrete, searchable memories. The agent analyzes the text and automatically creates multiple targeted memories with descriptive keys.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["agent_id", "text"],
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the agent"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Text to analyze and decompose into memories"
+                  },
+                  "importance": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Extraction thoroughness: 'high' (every detail), 'medium' (key facts), 'low' (critical only). Default 'medium'",
+                    "default": "medium"
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "description": "AWS Bedrock model to use for curation. Default 'us.amazon.nova-lite-v1:0'",
+                    "default": "us.amazon.nova-lite-v1:0"
+                  },
+                  "bedrock_region": {
+                    "type": "string",
+                    "description": "AWS region where Bedrock should run. Default 'us-east-1'",
+                    "default": "us-east-1"
+                  },
+                  "timeout_ms": {
+                    "type": "integer",
+                    "description": "Milliseconds between memory insertions (rate limiting). Default 1000",
+                    "default": 1000,
+                    "minimum": 0,
+                    "maximum": 5000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Curation successful, memories created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "memories_created": {
+                          "type": "integer",
+                          "description": "Number of discrete memories created"
+                        },
+                        "memories": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string",
+                                "description": "Generated memory key (e.g., 'occupation_google_engineer')"
+                              },
+                              "text": {
+                                "type": "string",
+                                "description": "Extracted memory content"
+                              },
+                              "reasoning": {
+                                "type": "string",
+                                "description": "Why this key was chosen"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/insert-csv": {
+      "post": {
+        "operationId": "insertCSV",
+        "summary": "Bulk import from CSV",
+        "description": "Import multiple memories from CSV format (key,text pairs)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["agent_id", "csv_file"],
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the agent"
+                  },
+                  "csv_file": {
+                    "type": "string",
+                    "description": "Path to CSV file with 'key','text' format"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CSV imported successfully"
           }
         }
       }
