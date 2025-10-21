@@ -66,20 +66,20 @@ class HippocampusTitle(Scene):
         # Subtitle appears
         self.play(FadeIn(subtitle, run_time=1))
         
-        # Brain pulses with neural activity
-        self.play(
-            *[node.animate.set_color("#ffd23f") for node in nodes[::2]],
-            run_time=0.8
-        )
-        self.play(
-            *[node.animate.set_color("#ff6b35") for node in nodes[::2]],
-            *[node.animate.set_color("#ffd23f") for node in nodes[1::2]],
-            run_time=0.8
-        )
-        self.play(
-            *[node.animate.set_color("#ff6b35") for node in nodes[1::2]],
-            run_time=0.8
-        )
+        # Brain nodes fire in sequence - like neural activity
+        for i in range(3):  # Repeat the firing pattern 3 times
+            # Random firing pattern
+            firing_order = np.random.permutation(len(nodes))
+            for j in firing_order:
+                node = nodes[j]
+                self.play(
+                    node.animate.set_color("#ffd23f").scale(1.5),
+                    run_time=0.15
+                )
+                self.play(
+                    node.animate.set_color("#ff6b35").scale(1/1.5),
+                    run_time=0.15
+                )
         
         # Title pulse
         self.play(
