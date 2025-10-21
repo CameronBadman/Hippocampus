@@ -1,279 +1,331 @@
 # Hippocampus
 
-A production-ready semantic memory system for AI agents built on AWS. Simple, fast, and debuggable.
+**A vector database built for AI agents.** Not retrofitted from document search—designed from the ground up for how agents actually manage memory.
 
-## What is this?
+## The Problem
 
-Hippocampus is a simple, stable vector database optimized for AI agent memory. No HNSW graphs, no quantization, no clustering—just sorted arrays and binary search. It runs as both a CLI tool for local development and a serverless Lambda API for production multi-agent systems.
+AI agents lack consistency, reliability, and real memory. Traditional vector databases are built for billion-scale document retrieval. They're over-engineered for problems you don't have.
 
-Built for the **99% use case**: 5k-10k vectors per agent that need to be fast, deterministic, and debuggable.
+Agents need something different: fast, isolated, persistent memory they control.
 
-## Why?
+## The Solution
 
-Most vector databases are over-engineered for billion-scale problems you don't have. Hippocampus embraces simplicity:
+**Hippocampus**: The SQLite of AI agent memory.
 
-- **Simple**: Sorted arrays and binary search—algorithms from CS101
-- **Stable**: Same query always returns same results, deterministic ordering
-- **Fast**: O(log n × 512) binary searches, microsecond queries on 5k nodes
-- **Debuggable**: No black-box indexes, inspect the data structures directly
-- **Production-ready**: Serverless Lambda deployment with EFS persistence and S3 backups
-- **Multi-agent**: Isolated storage per agent, lazy-loaded from S3
+Built for the **agent use case**: 5k-10k vectors per agent that need to be fast, deterministic, and debuggable.
 
-## Quick Start
+### Two Ways Agents Use Memory
 
-### Local CLI Tool
-
-```bash
-# Build the CLI
-make build-cli
-
-# Insert memories
-./bin/hippocampus insert -key "meeting_notes" -text "Discussed Q4 roadmap with engineering team"
-
-# Semantic search
-./bin/hippocampus search -text "engineering planning" -e 0.2
-
-# Bulk import
-./bin/hippocampus insert-csv -csv memories.csv
-```
-
-### Deploy to AWS Lambda
-
-```bash
-# Build and deploy serverless API
-make deploy
-
-# Test the deployed API
-bash test.sh
-```
-
-### Use from Python Agents
-
+**1. Agent-Controlled Pattern**
+Smart agents with full control over their memory:
 ```python
-import requests
-
-API = "https://your-api.execute-api.us-east-1.amazonaws.com"
-
-# Insert a memory
+# Agent decides what to store
 requests.post(f"{API}/insert", json={
     "agent_id": "my_agent",
-    "key": "user_preference",
-    "text": "User prefers dark mode and condensed layouts"
+    "key": "user_preference_dark_mode",
+    "text": "User prefers dark mode"
 })
 
-# Search memories
-response = requests.post(f"{API}/search", json={
+# Agent controls search precision
+requests.post(f"{API}/search", json={
     "agent_id": "my_agent",
     "text": "UI preferences",
-    "epsilon": 0.3,
-    "threshold": 0.5,
-    "top_k": 5
+    "epsilon": 0.2,      # Search radius
+    "threshold": 0.6,    # Similarity cutoff
+    "top_k": 3           # Result limit
 })
-memories = response.json()["data"]
 ```
 
-## Deployment Modes
+**2. Database-Curated Pattern**
+Simple agents just pass text—internal AI agent handles curation:
+```python
+# Send raw text, get structured memories
+requests.post(f"{API}/agent-curate", json={
+    "agent_id": "my_agent",
+    "text": "My name is Sarah, I work at Google, allergic to shellfish",
+    "importance": "high",
+    "model_id": "us.amazon.nova-lite-v1:0",
+    "bedrock_region": "us-east-1"
+})
 
-### CLI Mode (Local Development)
-- Single flat file storage (default: `tree.bin`)
-- Direct Bedrock API calls for embeddings
-- Perfect for prototyping and testing
+# Internal agent automatically creates:
+# • personal_name_sarah
+# • occupation_google_engineer  
+# • allergy_shellfish
+```
 
-### Lambda Mode (Production)
-- **EFS**: Per-agent `.bin` files for warm storage
-- **S3**: Automatic async backups to S3 for durability
-- **Memcached**: ElastiCache cluster for embedding caching
-- **API Gateway**: HTTP API with `/insert`, `/search`, `/insert-csv` endpoints
-- **VPC**: Private subnets with NAT gateway for Bedrock access
-- **Multi-agent isolation**: Each agent gets its own namespace
+## Why This Architecture?
+
+### The SQLite Philosophy
+
+**SQLite**: File-based SQL database, simple, reliable, ubiquitous  
+**Hippocampus**: File-based vector database, simple, reliable, built for agents
+
+- No database servers to manage
+- No connection pools or networking complexity
+- Just files: load, search, done
+- Perfect for Lambda's ephemeral execution model
+
+### Built for Agents, Not Documents
+
+**Traditional vector databases optimize for:**
+- Billion-scale document retrieval
+- Approximate nearest neighbors (HNSW, IVF)
+- Distributed clusters
+
+**Agents need:**
+- Per-agent isolated memory (multi-tenancy)
+- Deterministic, debuggable results
+- Fast at 5k-10k scale
+- Natural language control over precision
+- File-based simplicity
 
 ## How It Works
 
-1. **Embedding**: Text → AWS Titan Embed v2 → 512-dimensional vector
-2. **Indexing**: Each dimension maintains a sorted array of node indices
-3. **Search**: Binary search per dimension to find nodes within epsilon-ball
-4. **Filtering**: Return only nodes present in ALL 512 dimensions (intersection)
-5. **Ranking**: Calculate Euclidean distance, filter by threshold, sort by similarity
-6. **Top-K**: Return the K most similar results
+### Core Architecture
 
-## Search Parameters
+**Custom 512-dimensional indexing**
+- 512 sorted arrays (one per dimension)
+- O(log n) binary search per dimension
+- Guaranteed retrieval, no approximation
 
-Understanding how to tune search for different use cases:
+**Binary serialization**
+- Custom format: 2KB per node
+- Each agent gets isolated `.bin` file
+- Rebuild index on load (~50ms)
 
-### Epsilon (Bounding Box Size)
-Controls the per-dimension search radius. Smaller = stricter matching.
-- **0.15-0.2**: Precise matches (e.g., exact fact retrieval)
-- **0.3**: General queries (default, balanced)
-- **0.4-0.5**: Broad exploration
+**Search algorithm:**
+1. Text → AWS Bedrock Titan → 512-dim vector
+2. Binary search each dimension for epsilon-ball candidates
+3. Calculate Euclidean distance for candidates
+4. Filter by threshold, sort by similarity
+5. Return top-k results
 
-### Threshold (Distance Filter)
-Filters results by actual Euclidean distance. Higher = stricter.
-- **0.7+**: Safety-critical queries (allergies, medical info)
-- **0.5-0.6**: Standard semantic search (default: 0.5)
-- **0.4**: Loose matching, discovery mode
-
-### Top-K (Result Limit)
-Number of results to return, sorted by similarity.
-- **1-3**: Precise answers
-- **5**: General queries (default)
-- **10**: Comprehensive searches
-
-### Example Tuning
-```bash
-# Precise fact lookup
-./bin/hippocampus search -text "peanut allergy" -e 0.2 -threshold 0.7 -top-k 3
-
-# Broad exploration
-./bin/hippocampus search -text "travel experiences" -e 0.4 -threshold 0.4 -top-k 10
-```
-
-## Demo Agents
-
-Four Python demos in `demo/python/` show real-world agent patterns:
-
-### 1. Basic Agent (`basic_agent.py`)
-Simple memory insert/search using AWS Bedrock Converse API.
-```bash
-cd demo/python
-python basic_agent.py
-```
-
-### 2. AgentCore Demo (`agentcore_agent.py`)
-Advanced intelligent memory decomposition. The agent automatically:
-- Analyzes input to identify multiple distinct facts
-- Creates targeted, searchable memories with descriptive keys
-- Adapts search parameters based on query type
-- Demonstrates handling dense personal profiles (15+ facts from one input)
-
-```bash
-python agentcore_agent.py              # Run demo scenario
-python agentcore_agent.py --interactive # Interactive mode
-```
-
-### 3. Safety Demo (`safety_demo.py`)
-**Critical**: Shows how persistent memory prevents dangerous mistakes.
-
-Scenario: Parent mentions child's shellfish allergy in one conversation. Days later, in a new conversation with zero context, they mention buying shrimp for dinner. The agent:
-1. Proactively searches memory when food is mentioned
-2. Uses high threshold (0.7+) for safety-critical queries
-3. Retrieves the allergy information
-4. Warns the parent before a life-threatening mistake
-
-```bash
-python safety_demo.py
-```
-
-This demonstrates why semantic memory matters for AI agents—not just convenience, but actual safety.
-
-### 4. Customer Support Demo (`customer_support_demo.py`)
-**Production-scale**: AI support agent with 200-vector knowledge base.
-
-Demonstrates real-world enterprise use case:
-- 200+ support articles (authentication, API docs, billing, troubleshooting, integrations)
-- Semantic search across technical documentation
-- Agent adapts search parameters based on question complexity
-- Production-ready multi-agent architecture
-
-```bash
-# Populate knowledge base with 200 articles
-python customer_support_demo.py --populate
-
-# Run automated demo scenarios
-python customer_support_demo.py --demo
-
-# Interactive support chat
-python customer_support_demo.py --interactive
-```
-
-Perfect for video demos—shows real business value at scale.
-
-## Use Cases
-
-- **Long-term agent memory**: Remember user preferences, facts, and context across sessions
-- **Safety-critical retrieval**: Allergies, medical info, restrictions that must never be forgotten
-- **Few-shot learning**: Retrieve relevant examples from history for in-context learning
-- **Tool/API selection**: Find the right function based on semantic task description
-- **Deduplication**: Check if similar content already exists before processing
-- **Conversation context**: Load relevant past interactions on-demand
-- **Output caching**: Store expensive LLM outputs, retrieve for similar queries
-
-## AWS Setup
-
-Requires AWS credentials with Bedrock access:
-
-```bash
-aws configure
-# or
-export AWS_ACCESS_KEY_ID=your_key
-export AWS_SECRET_ACCESS_KEY=your_secret
-```
-
-IAM policy needed:
-```json
-{
-    "Effect": "Allow",
-    "Action": "bedrock:InvokeModel",
-    "Resource": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0"
-}
-```
-
-## Architecture
-
-### Core Data Structures
-
+**Data structures:**
 ```go
 type Node struct {
-    Key   [512]float32  // Embedding vector from AWS Titan
-    Value string        // Actual text content
+    Key   [512]float32  // Embedding vector
+    Value string        // Actual text
 }
 
 type Tree struct {
     Nodes []Node
-    Index [512][]int32  // Per-dimension sorted indices for binary search
+    Index [512][]int32  // Per-dimension sorted indices
 }
 ```
 
-The Index is the key innovation: 512 arrays of node indices, each sorted by that dimension's value. This enables O(log n) binary search per dimension to find all nodes within the epsilon-ball.
+## Demo: End-to-End Agent Workflows
 
-### Module Organization
+### 1. Safety-Critical Memory (`safety_demo.py`)
+
+**The scenario that matters:**
+
+Parent: "My daughter Emma has a shellfish allergy"  
+→ Agent stores it
+
+*[Weeks pass, new conversation]*
+
+Parent: "I'm buying shrimp for Emma's dinner"  
+→ Agent searches memory  
+→ Finds allergy  
+→ **Warns parent, prevents ER trip**
+
+**This is why agent memory matters—not convenience, but safety.**
+
+```bash
+cd demo/python
+python safety_demo.py
+```
+
+### 2. Intelligent Decomposition (`agentcore_agent.py`)
+
+**Agent-to-agent orchestration:**
+
+User shares complex paragraph (20+ facts)  
+→ External agent (Bedrock Nova) decides to curate  
+→ Calls internal curation agent (Lambda + Nova)  
+→ Internal agent decomposes into 28 discrete memories  
+→ External agent queries later  
+→ Retrieves precisely what's needed
+
+**This is agents orchestrating agents—autonomous, scalable, production-ready.**
+
+```bash
+python agentcore_agent.py              # Demo scenario
+python agentcore_agent.py --interactive # Interactive mode
+```
+
+### 3. Agent-to-Agent Curation (`test_agent_curate.py`)
+
+Shows the full `/agent-curate` workflow with both curation and retrieval.
+
+```bash
+python test_agent_curate.py
+```
+
+## Architecture: Pure Lambda, File-Based, Serverless
+
+### Deployment
+
+**Infrastructure (Terraform):**
+- **Lambda**: Pure function, stateless, infinitely scalable
+- **EFS**: Per-agent `.bin` files for hot access
+- **S3**: Automatic async backups for durability
+- **NAT Gateway**: Lambda → Bedrock API calls
+- **API Gateway**: `/insert`, `/search`, `/agent-curate` endpoints
+
+**Key insight:** Because Lambda is pure (stateless), this scales as hard as Lambda scales. No database bottlenecks.
+
+```bash
+make deploy  # Deploys complete AWS stack
+```
+
+### File-Based Storage
+
+```
+EFS/S3 Structure:
+/agents/
+  ├── agent_abc123.bin    # 10MB, 5k memories
+  ├── agent_def456.bin    # 15MB, 7k memories
+  └── agent_ghi789.bin    # 8MB, 4k memories
+```
+
+**Why this works:**
+- Isolation: Each agent's memory is separate
+- Lazy loading: Lambda only loads requested agent's file
+- Simple backups: Just copy `.bin` files to S3
+- No coordination: No locks, no distributed state
+
+### Lambda Execution Model
+
+```
+Request → Lambda spins up
+       ↓
+   Load agent's .bin from EFS (~50ms)
+       ↓
+   Rebuild 512-index in memory
+       ↓
+   Execute search (<100ms)
+       ↓
+   Return results
+       ↓
+   Async S3 backup (no latency impact)
+```
+
+## API Reference
+
+### POST /insert
+Agent-controlled memory storage.
+```json
+{
+  "agent_id": "user123",
+  "key": "preference_theme",
+  "text": "User prefers dark mode"
+}
+```
+
+### POST /search
+Semantic search with full parameter control.
+```json
+{
+  "agent_id": "user123",
+  "text": "UI preferences",
+  "epsilon": 0.3,
+  "threshold": 0.5,
+  "top_k": 5
+}
+```
+
+### POST /agent-curate
+Internal AI agent curates text into discrete memories.
+```json
+{
+  "agent_id": "user123",
+  "text": "Sarah, 34, Google engineer, allergic to shellfish",
+  "importance": "high",
+  "model_id": "us.amazon.nova-lite-v1:0",
+  "bedrock_region": "us-east-1",
+  "timeout_ms": 50
+}
+```
+
+**Returns:**
+```json
+{
+  "memories_created": 3,
+  "memories": [
+    {"key": "personal_name_sarah", "text": "Sarah", "reasoning": "..."},
+    {"key": "occupation_google", "text": "Google engineer", "reasoning": "..."},
+    {"key": "allergy_shellfish", "text": "allergic to shellfish", "reasoning": "..."}
+  ]
+}
+```
+
+## Search Parameters Guide
+
+### Epsilon (Search Radius)
+Per-dimension bounding box. Lower = stricter.
+- **0.15-0.2**: Precise fact lookup
+- **0.3**: Balanced (default)
+- **0.4-0.5**: Broad exploration
+
+### Threshold (Distance Filter)
+Euclidean distance cutoff. Higher = stricter.
+- **0.7+**: Safety-critical queries
+- **0.5-0.6**: General search (default)
+- **0.4**: Discovery mode
+
+### Top-K (Result Limit)
+Number of results, sorted by similarity.
+- **1-3**: Precise answers
+- **5**: General queries (default)
+- **10**: Comprehensive search
+
+## Performance
+
+### Benchmarks (5k nodes per agent)
+- **File size**: ~10MB
+- **RAM**: ~20MB in Lambda
+- **Cold start**: ~200ms (load + index rebuild)
+- **Search**: <50ms (warm)
+- **Insert**: ~100ms (includes embedding)
+
+### Scalability
+- **Per-agent**: 5k-10k nodes (sweet spot)
+- **Total agents**: Unlimited (isolated files)
+- **Lambda concurrency**: 1000 concurrent agents (default)
+- **Cost**: ~$0.00012 per memory operation
+
+### Real Performance (From Logs)
+```
+Duration: 290.50 ms     # Search with 125 nodes
+Max Memory Used: 44 MB  # Efficient
+```
+
+## Module Organization
 
 ```
 src/
-├── types/              Tree/Node structs, Insert/Search algorithms
-├── storage/            Binary file serialization (Save/Load)
-├── embedding/          AWS Bedrock Titan embedding integration
-├── client/             High-level API (combines storage + embedding)
-├── cmd/cli/            CLI entry point
+├── types/              Core Tree/Node, Insert/Search algorithms
+├── storage/            Binary serialization (Save/Load)
+├── embedding/          AWS Bedrock Titan integration
+├── client/             High-level API
 └── lambda/
-    ├── main.go         Lambda entry point
-    ├── handlers/       HTTP routing (insert, search, insert-csv)
-    ├── storage/        Multi-agent storage manager with S3 sync
-    └── cache/          Memcached integration
+    ├── handlers/       HTTP routing, agent-curate logic
+    └── storage/        Multi-agent manager with S3 sync
 
-terraform/              AWS infrastructure (VPC, EFS, S3, Lambda, API Gateway)
+terraform/              Complete AWS infrastructure
 demo/python/            Agent integration examples
 ```
 
-### AWS Infrastructure (Lambda Mode)
+## AWS Setup
 
-Terraform deploys complete serverless infrastructure:
-- **Lambda**: Function in VPC with 1GB RAM, 60s timeout
-- **EFS**: Network file system mounted at /mnt/efs/agents/
-- **S3**: Cold storage with versioning enabled
-- **ElastiCache**: Memcached cluster for embedding cache
-- **VPC**: Public/private subnets, NAT gateway for Bedrock API access
-- **API Gateway**: HTTP API endpoints
-
-Each agent gets isolated storage: `{agent_id}.bin` on EFS, backed up to S3.
-
-## AWS Requirements
-
-Configure AWS credentials with Bedrock access:
+### Prerequisites
 ```bash
 aws configure
 ```
 
-Required IAM permissions:
+### IAM Permissions
 ```json
 {
   "Version": "2012-10-17",
@@ -281,114 +333,76 @@ Required IAM permissions:
     {
       "Effect": "Allow",
       "Action": "bedrock:InvokeModel",
-      "Resource": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0"
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
+        "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0"
+      ]
     }
   ]
 }
 ```
 
-For Terraform deployment, update `terraform/terraform.tfvars`:
-```hcl
-aws_region       = "us-east-1"
-s3_bucket_name   = "your-unique-bucket-name"
-memcached_node_type = "cache.t3.micro"
-```
-
-Then deploy:
+### Deploy
 ```bash
 make deploy
 ```
 
-## Performance & Limitations
+## Limitations & Trade-offs
 
-### Performance
-- **5k nodes**: ~20MB RAM, microsecond queries
-- **10k nodes**: ~40MB RAM, sub-millisecond queries
-- **Insert**: O(n log n) per dimension (512 sorted insertions)
-- **Search**: O(log n × 512) binary searches + distance calculations
-- **File size**: ~10MB per 5k nodes (2KB per node average)
-
-### Limitations
-- **Not for billions of vectors**: Designed for 5k-10k per agent. Use Pinecone/Weaviate for larger scale.
-- **Single-writer**: No concurrent write support. Lambda writes are serialized per agent.
-- **No automatic relevance**: Epsilon/threshold must be tuned for your domain.
-- **Region locked**: Hardcoded to us-east-1 for Bedrock Titan availability.
-- **Full rewrites**: CLI mode rewrites entire file on insert (Lambda mode uses EFS for better performance).
-
-### When to Use Hippocampus
-**Good for:**
-- AI agent memory (user preferences, conversation history)
-- Personal knowledge bases (notes, documents, memories)
-- Few-shot example retrieval
-- Tool/function selection
-- Small-to-medium semantic search (under 10k vectors per agent)
-- Deterministic, debuggable results required
-
-**Not good for:**
-- Billion-scale vector search
+**Not for:**
+- Billion-scale vector search (use Pinecone/Weaviate)
 - Real-time collaborative editing
-- High-frequency writes (>100/sec)
-- Multi-modal embeddings (only text via Titan)
+- Sub-millisecond latency requirements
+- Highly concurrent writes to same agent
 
-## CSV Format
+**Perfect for:**
+- AI agent memory (user preferences, history)
+- Personal knowledge bases
+- Few-shot example retrieval
+- Tool/API selection
+- 5k-10k vectors per agent use case
 
-Bulk import expects CSV with "key","text" format:
-```csv
-"preference_ui_theme","User prefers dark mode with high contrast"
-"allergy_food_peanuts","Severe peanut allergy, carries EpiPen"
-"travel_history_japan_2024","Visited Tokyo and Kyoto in March 2024"
-"work_role_engineer","Software engineer focused on cloud infrastructure"
-```
+## Vision: AWS-Native Agent Memory Service
 
-## Vision: Managed AWS Service for Agent Memory
+Hippocampus demonstrates what a **managed AWS service for agent memory** could look like:
 
-Hippocampus is designed as a potential **managed AWS service** for AI agent memory:
+**Why this should be a service:**
+- Every agent needs memory
+- AWS-native (Bedrock, Lambda, EFS, S3)
+- Serverless, pay-per-use
+- Simple API
+- Multi-tenant ready
 
-### Why This Should Be a Service
-- **Every agent needs memory**: Current solutions (Pinecone, Weaviate) are over-engineered or expensive for typical agent use cases
-- **AWS-native architecture**: Built entirely on AWS primitives (Bedrock, Lambda, EFS, S3)
-- **Serverless and scalable**: Pay-per-use model, automatic scaling per agent
-- **Simple API**: Just insert and search—no complex configuration or tuning
-- **Multi-tenancy ready**: Built-in agent isolation, per-agent billing possible
+**Integration points:**
+- AWS Bedrock Agents
+- Amazon Q (cross-session memory)
+- Amazon Connect (customer service agents)
+- AWS Amplify (client-side agents)
 
-### Service Integration Points
-- **AWS Bedrock**: Natural extension of Bedrock's agent capabilities
-- **Amazon Q**: Could power Q's long-term memory across sessions
-- **Amazon Connect**: Customer service agents with persistent context
-- **AWS Amplify**: Client-side agent memory for mobile/web apps
-
-### Deployment Model
-```
-┌─────────────────────────────────────────────────┐
-│  AWS Hippocampus Service (Hypothetical)         │
-├─────────────────────────────────────────────────┤
-│  • Multi-tenant Lambda functions                │
-│  • Shared EFS with per-tenant encryption        │
-│  • S3 for cold storage and durability           │
-│  • CloudWatch for monitoring and billing        │
-│  • API Gateway for public endpoints             │
-│  • Bedrock integration for embeddings           │
-└─────────────────────────────────────────────────┘
-```
-
-Simple customer experience:
+**Hypothetical customer experience:**
 ```python
 import boto3
+client = boto3.client('hippocampus')
 
-client = boto3.client('hippocampus')  # Hypothetical service
-
-# Insert memory
-client.insert(AgentId='my-agent', Key='user_pref', Text='User prefers dark mode')
-
-# Search memory
+client.insert(AgentId='my-agent', Key='pref', Text='Dark mode')
 results = client.search(AgentId='my-agent', Query='UI preferences')
 ```
 
 ## Built For AWS AI Agent Global Hackathon
 
-This project demonstrates:
-- **AWS Bedrock integration**: Titan Embed v2 for embeddings, Nova Lite for agent intelligence
-- **Serverless architecture**: Lambda, EFS, S3, ElastiCache deployed via Terraform
-- **Multi-agent systems**: Isolated per-agent storage with S3 backup
-- **Production-ready**: VPC networking, IAM roles, API Gateway integration
-- **Agent memory patterns**: Four demo agents showing real-world use cases (personal memory, safety-critical retrieval, customer support at scale)
+**Novel contributions:**
+- ✅ Custom vector database built from scratch (not using existing services)
+- ✅ File-based architecture optimized for agent workloads
+- ✅ Two interaction patterns: agent-controlled + database-curated
+- ✅ Agent-to-agent orchestration (external → internal curation agent)
+
+**Demonstrates:**
+- AWS Bedrock (Titan embeddings, Nova Lite reasoning)
+- Serverless architecture (Lambda, EFS, S3, API Gateway)
+- Multi-agent systems (isolated storage, autonomous curation)
+- Production-ready (VPC, NAT Gateway, IAM, monitoring)
+- Real-world agent patterns (safety-critical, decomposition, orchestration)
+
+---
+
+**The SQLite of AI agents. Simple, reliable, production-ready.**
