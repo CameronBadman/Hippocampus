@@ -38,6 +38,13 @@ resource "aws_subnet" "public_a" {
   }
 }
 
+
+resource "aws_apigatewayv2_route" "ui" {
+  api_id    = aws_apigatewayv2_api.hippocampus_api.id
+  route_key = "GET /"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
 resource "aws_subnet" "public_b" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.2.0/24"
@@ -374,6 +381,14 @@ resource "aws_lambda_function" "hippocampus" {
   ]
 }
 
+
+resource "aws_apigatewayv2_route" "agent_safety" {
+  api_id    = aws_apigatewayv2_api.hippocampus_api.id
+  route_key = "POST /agent-safety"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
+
 resource "aws_apigatewayv2_api" "hippocampus_api" {
   name          = "hippocampus-api"
   protocol_type = "HTTP"
@@ -424,6 +439,9 @@ resource "aws_lambda_permission" "api_gateway" {
   source_arn    = "${aws_apigatewayv2_api.hippocampus_api.execution_arn}/*/*"
 }
 
+
+
+
 output "api_endpoint" {
   value       = aws_apigatewayv2_api.hippocampus_api.api_endpoint
   description = "HTTP API endpoint for testing"
@@ -437,4 +455,25 @@ output "s3_bucket" {
 output "efs_id" {
   value       = aws_efs_file_system.agents.id
   description = "EFS file system ID"
+}
+
+output "agent_curate_endpoint" {
+  value       = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent/curate"
+  description = "Agent Curate endpoint"
+}
+
+output "safety_agent_endpoint" {
+  value       = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent/safety"  
+  description = "Safety Agent endpoint"
+}
+
+output "all_endpoints" {
+  value = {
+    hippocampus_api = aws_apigatewayv2_api.hippocampus_api.api_endpoint
+    agent_curate    = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent/curate"
+    safety_agent    = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent/safety"
+    insert          = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/insert"
+    search          = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/search"
+  }
+  description = "All API endpoints"
 }

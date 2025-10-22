@@ -20,24 +20,36 @@ func New(storageManager *storage.Manager, _ interface{}) *Handler {
 	}
 }
 
+
 func (h *Handler) Route(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	if request.HTTPMethod != "POST" {
-		return errorResponse(400, "only POST method is supported")
-	}
-	
 	switch request.Path {
-	case "/insert":
-		return h.handleInsert(request)
-	case "/search":
-		return h.handleSearch(request)
-	case "/insert-csv":
-		return h.handleInsertCSV(request)
-	case "/agent-curate":
-		return h.handleAgentCurate(request)
+	case "/":
+		if request.HTTPMethod != "GET" {
+			return errorResponse(400, "only GET method is supported for /")
+		}
+		return h.HandleUI(ctx, request)
 	default:
-		return errorResponse(404, "unknown endpoint")
+		if request.HTTPMethod != "POST" {
+			return errorResponse(400, "only POST method is supported")
+		}
+		
+		switch request.Path {
+		case "/insert":
+			return h.handleInsert(request)
+		case "/search":
+			return h.handleSearch(request)
+		case "/insert-csv":
+			return h.handleInsertCSV(request)
+		case "/agent-curate":
+			return h.handleAgentCurate(request)
+		case "/agent-safety":
+			return h.HandleSafetyAgent(request)
+		default:
+			return errorResponse(404, "unknown endpoint")
+		}
 	}
 }
+
 
 
 

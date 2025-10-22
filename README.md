@@ -285,4 +285,11 @@ results = client.search(AgentId='my-agent', Query='UI preferences')
 
 ---
 
+## Note on the UI
+
+Hippocampus **does include a demo UI**, but it is designed purely to **showcase functionality**. The UI is not intended for production usage.
+
+The **main product** is the underlying vector database and API, which is used by the demo agents to manage memory efficiently and safely. All agent workflows, memory insertions, searches, and curation happen programmatically through the API — the UI simply visualizes these operations for demonstration purposes.
+
+
 **The SQLite of AI agents. Simple, reliable, production-ready.**
