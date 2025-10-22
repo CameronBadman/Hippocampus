@@ -36,8 +36,16 @@ Hippocampus's O(512 log n) binary search algorithm demonstrates **4,200x faster*
 | 100   | 91.0 ms | 48.9 ms | FAISS (cold start overhead) |
 | 500   | 85.7 ms | 50.7 ms | FAISS (cold start overhead) |
 | 1,000  | 97.0 ms | 116.3 ms | **Hippocampus** |
-| 5,000  | 107.7 ms | 73.4 ms | FAISS (Bedrock variance) |
+| 5,000  | 107.7 ms | 73.4 ms | FAISS (potential Bedrock variance) |
 | 10,000 | 92.0 ms | 86.6 ms | **Hippocampus** |
+
+
+# check
+I spent 18 hours auditing these results because they seemed too good to be true. 
+Binary search being 4,000x faster than brute force is textbook theory, but seeing 
+it in practice at sub-microsecond scale was surprising. The math checks out, the 
+measurements are reproducible, but healthy skepticism is warranted with any 
+benchmark. Independent verification welcome and requested for I would love to be proven wrong here.
 
 **Note:** Total time varies due to Bedrock API latency (70-120ms), which dominates the measurement. Pure algorithm performance is the true indicator of efficiency.
 
@@ -144,25 +152,10 @@ For **agent-scale (5k-10k nodes) deterministic search**, Hippocampus delivers:
 - File-based persistence without sacrificing speed
 - Logarithmic scaling that outperforms linear approaches
 
-# honest check
-I spent 18 hours auditing these results because they seemed too good to be true. 
-Binary search being 4,000x faster than brute force is textbook theory, but seeing 
-it in practice at sub-microsecond scale was surprising. The math checks out, the 
-measurements are reproducible, but healthy skepticism is warranted with any 
-benchmark. Independent verification welcome, and asked for I would love to be proven wrong here.
-
 ---
 
 ## Reproduction
+run the flake.nix file you need to be able to use nix develop to get the exact same File versions
 
-Full benchmark scripts and results available in `/faiss-comparison/`:
-- `benchmark_scaling.sh` - Complete scaling benchmark
-- `setup-ec2.sh` - EC2 environment setup
-- `deploy.sh` - Run benchmarks on EC2
-
-```bash
-cd faiss-comparison
-./setup-ec2.sh           # Launch EC2 instance
-./deploy.sh              # Run full benchmark (~40 minutes)
-aws ec2 terminate-instances --region ap-southeast-2 --instance-ids <ID>
-```
+I ran my tests on a ec2 container to get as close to the bedrock servers but the results should stay similar
+for pure algorithms but the bedrock latency will still dominate and potentially may be more chaotic (just look at pure algo times if you care about this stuff)
