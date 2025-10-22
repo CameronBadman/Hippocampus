@@ -84,6 +84,35 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
+
+resource "aws_secretsmanager_secret_version" "lambda_url_value" {
+  secret_id     = aws_secretsmanager_secret.lambda_url.id
+  secret_string = jsonencode({
+    API_URL = aws_apigatewayv2_api.hippocampus_api.api_endpoint
+  })
+}
+
+resource "aws_iam_policy" "lambda_secrets_policy" {
+  name   = "hippocampus_lambda_secrets_policy"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ],
+        Resource = aws_secretsmanager_secret.lambda_url.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_secrets_attach" {
+  policy_arn = aws_iam_policy.lambda_secrets_policy.arn
+  role       = aws_iam_role.lambda_role.name
+}
+
 resource "aws_eip" "nat" {
   domain = "vpc"
 
@@ -343,15 +372,20 @@ resource "aws_s3_bucket_versioning" "hippocampus_data" {
   }
 }
 
+resource "aws_secretsmanager_secret" "lambda_url" {
+  name = "hippocampus_lambda_url"
+  description = "Secret holding the internal API endpoint URL for Lambda"
+}
+
 resource "aws_lambda_function" "hippocampus" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "hippocampus"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "bootstrap"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "bootstrap"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "provided.al2023"
-  timeout         = 60
-  memory_size     = 1024
+  runtime          = "provided.al2023"
+  timeout          = 60
+  memory_size      = 1024
 
   vpc_config {
     subnet_ids         = [aws_subnet.private_a.id, aws_subnet.private_b.id]
@@ -369,8 +403,9 @@ resource "aws_lambda_function" "hippocampus" {
 
   environment {
     variables = {
-      S3_BUCKET = aws_s3_bucket.hippocampus_data.bucket
-      EFS_PATH  = "/mnt/efs/agents"
+      S3_BUCKET     = aws_s3_bucket.hippocampus_data.bucket
+      EFS_PATH      = "/mnt/efs/agents"
+      LAMBDA_SECRET = aws_secretsmanager_secret.lambda_url.arn
     }
   }
 
@@ -380,6 +415,7 @@ resource "aws_lambda_function" "hippocampus" {
     aws_nat_gateway.main
   ]
 }
+
 
 
 resource "aws_apigatewayv2_route" "agent_safety" {
@@ -458,12 +494,12 @@ output "efs_id" {
 }
 
 output "agent_curate_endpoint" {
-  value       = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent/curate"
+  value       = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent-curate"
   description = "Agent Curate endpoint"
 }
 
 output "safety_agent_endpoint" {
-  value       = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent/safety"  
+  value       = "${aws_apigatewayv2_api.hippocampus_api.api_endpoint}/agent-safety"  
   description = "Safety Agent endpoint"
 }
 
