@@ -1,0 +1,11 @@
+# Temporary benchmark files
+*.bin
+*.log
+*.pyc
+__pycache__/
+# Build artifacts
+hippocampus
+
+# Keep results but ignore specific output files
+results/*.txt
+!results/.gitkeep

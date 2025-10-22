@@ -1,0 +1,75 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+
+# Hippocampus-specific
+# Build artifacts
+bin/
+terraform/bootstrap
+terraform/lambda.zip
+
+# Database files
+*.bin
+tree.bin
+test_tree.bin
+benchmark_*.bin
+
+# Test artifacts
+test_data.csv
+test.sh
+
+# Python virtual environments
+venv/
+venv_benchmark/
+__pycache__/
+*.pyc
+
+# EC2 deployment
+faiss-comparison/.ec2-instance.txt
+faiss-comparison/results/*.txt
+faiss-comparison/results/*.bin
+faiss-comparison/benchmark_faiss.py
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfvars
+
+# Temporary files
+/tmp/
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Submission artifacts
+*.zip
+hippocampus-submission.zip
+
+# Video files
+*.mp4
+
+# Rope project files
+.ropeproject/

@@ -1,4 +1,10 @@
-.PHONY: build-cli build-lambda clean test deploy
+.PHONY: build-cli build-lambda clean test deploy all
+
+build-cli:
+	@echo "Building CLI..."
+	@mkdir -p bin
+	CGO_ENABLED=0 go build -o bin/hippocampus src/cmd/cli/main.go
+	@echo "✓ CLI built: bin/hippocampus"
 
 build-lambda:
 	@echo "Building Lambda function..."

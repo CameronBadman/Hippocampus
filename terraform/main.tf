@@ -187,30 +187,6 @@ resource "aws_security_group" "efs_sg" {
   }
 }
 
-resource "aws_security_group" "memcached_sg" {
-  name        = "hippocampus-memcached-sg"
-  description = "Security group for Memcached cluster"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = 11211
-    to_port         = 11211
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lambda_sg.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "hippocampus-memcached-sg"
-  }
-}
-
 resource "aws_efs_file_system" "agents" {
   creation_token = "hippocampus-agents"
   
@@ -254,26 +230,6 @@ resource "aws_efs_access_point" "agents" {
 
   tags = {
     Name = "hippocampus-agents-access-point"
-  }
-}
-
-resource "aws_elasticache_subnet_group" "memcached" {
-  name       = "hippocampus-memcached-subnet"
-  subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-}
-
-resource "aws_elasticache_cluster" "memcached" {
-  cluster_id           = "hippocampus-cache"
-  engine               = "memcached"
-  node_type            = var.memcached_node_type
-  num_cache_nodes      = 1
-  parameter_group_name = "default.memcached1.6"
-  port                 = 11211
-  subnet_group_name    = aws_elasticache_subnet_group.memcached.name
-  security_group_ids   = [aws_security_group.memcached_sg.id]
-
-  tags = {
-    Name = "hippocampus-memcached"
   }
 }
 
@@ -406,9 +362,8 @@ resource "aws_lambda_function" "hippocampus" {
 
   environment {
     variables = {
-      S3_BUCKET          = aws_s3_bucket.hippocampus_data.bucket
-      EFS_PATH           = "/mnt/efs/agents"
-      MEMCACHED_ENDPOINT = "${aws_elasticache_cluster.memcached.cache_nodes[0].address}:${aws_elasticache_cluster.memcached.cache_nodes[0].port}"
+      S3_BUCKET = aws_s3_bucket.hippocampus_data.bucket
+      EFS_PATH  = "/mnt/efs/agents"
     }
   }
 
@@ -482,9 +437,4 @@ output "s3_bucket" {
 output "efs_id" {
   value       = aws_efs_file_system.agents.id
   description = "EFS file system ID"
-}
-
-output "memcached_endpoint" {
-  value       = "${aws_elasticache_cluster.memcached.cache_nodes[0].address}:${aws_elasticache_cluster.memcached.cache_nodes[0].port}"
-  description = "Memcached endpoint"
 }

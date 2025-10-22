@@ -4,7 +4,7 @@ import requests
 
 bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
 
-HIPPOCAMPUS_API = "https://z8ba4k81gf.execute-api.ap-southeast-2.amazonaws.com"
+HIPPOCAMPUS_API = "https://rbf04f5hud.execute-api.ap-southeast-2.amazonaws.com"
 
 def test_agent_curate():
     print("🤖 AI Agent → AI Agent Curation Demo")
