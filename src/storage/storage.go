@@ -3,9 +3,11 @@ package storage
 import (
 	"Hippocampus/src/types"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 type FileStorage struct {
@@ -105,9 +107,51 @@ func writeNode(w io.Writer, n *types.Node) error {
 	if err := binary.Write(w, binary.LittleEndian, int64(len(valueBytes))); err != nil {
 		return err
 	}
+	if _, err := w.Write(valueBytes); err != nil {
+		return err
+	}
 
-	_, err := w.Write(valueBytes)
-	return err
+	// Write timestamp
+	timestampBytes, err := n.Timestamp.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	if err := binary.Write(w, binary.LittleEndian, int32(len(timestampBytes))); err != nil {
+		return err
+	}
+	if _, err := w.Write(timestampBytes); err != nil {
+		return err
+	}
+
+	// Write metadata
+	var metadataBytes []byte
+	if n.Metadata != nil {
+		metadataBytes, err = json.Marshal(n.Metadata)
+		if err != nil {
+			return err
+		}
+	}
+	if err := binary.Write(w, binary.LittleEndian, int32(len(metadataBytes))); err != nil {
+		return err
+	}
+	if len(metadataBytes) > 0 {
+		if _, err := w.Write(metadataBytes); err != nil {
+			return err
+		}
+	}
+
+	// Write radius word
+	radiusWordBytes := []byte(n.RadiusWord)
+	if err := binary.Write(w, binary.LittleEndian, int32(len(radiusWordBytes))); err != nil {
+		return err
+	}
+	if len(radiusWordBytes) > 0 {
+		if _, err := w.Write(radiusWordBytes); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func readNode(r io.Reader, n *types.Node, dimensions int) error {
@@ -139,7 +183,52 @@ func readNode(r io.Reader, n *types.Node, dimensions int) error {
 	if _, err := io.ReadFull(r, valueBytes); err != nil {
 		return err
 	}
-
 	n.Value = string(valueBytes)
+
+	// Read timestamp
+	var timestampLen int32
+	if err := binary.Read(r, binary.LittleEndian, &timestampLen); err != nil {
+		return err
+	}
+	timestampBytes := make([]byte, timestampLen)
+	if _, err := io.ReadFull(r, timestampBytes); err != nil {
+		return err
+	}
+	if err := n.Timestamp.UnmarshalBinary(timestampBytes); err != nil {
+		// Backwards compatibility: if no timestamp, use zero time
+		n.Timestamp = time.Time{}
+	}
+
+	// Read metadata
+	var metadataLen int32
+	if err := binary.Read(r, binary.LittleEndian, &metadataLen); err != nil {
+		// Backwards compatibility: if no metadata section, just return
+		return nil
+	}
+	if metadataLen > 0 {
+		metadataBytes := make([]byte, metadataLen)
+		if _, err := io.ReadFull(r, metadataBytes); err != nil {
+			return err
+		}
+		n.Metadata = make(types.Metadata)
+		if err := json.Unmarshal(metadataBytes, &n.Metadata); err != nil {
+			return err
+		}
+	}
+
+	// Read radius word (optional for backwards compatibility)
+	var radiusWordLen int32
+	if err := binary.Read(r, binary.LittleEndian, &radiusWordLen); err != nil {
+		// Backwards compatibility: if no radius word section, just return
+		return nil
+	}
+	if radiusWordLen > 0 {
+		radiusWordBytes := make([]byte, radiusWordLen)
+		if _, err := io.ReadFull(r, radiusWordBytes); err != nil {
+			return err
+		}
+		n.RadiusWord = string(radiusWordBytes)
+	}
+
 	return nil
 }

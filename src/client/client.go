@@ -81,6 +81,16 @@ func (client *Client) Flush() error {
 
 // Insert adds a vector and its associated text to the database
 func (client *Client) Insert(embedding []float32, text string) error {
+	return client.InsertWithMetadata(embedding, text, nil)
+}
+
+// InsertWithMetadata adds a vector with metadata to the database
+func (client *Client) InsertWithMetadata(embedding []float32, text string, metadata hippotypes.Metadata) error {
+	return client.InsertWithRadius(embedding, text, metadata, "")
+}
+
+// InsertWithRadius adds a vector with metadata and a semantic radius word to the database
+func (client *Client) InsertWithRadius(embedding []float32, text string, metadata hippotypes.Metadata, radiusWord string) error {
 	if len(embedding) != client.Dimensions {
 		return fmt.Errorf("dimension mismatch: expected %d, got %d", client.Dimensions, len(embedding))
 	}
@@ -98,7 +108,7 @@ func (client *Client) Insert(embedding []float32, text string) error {
 		tree.Index = make([][]int32, client.Dimensions)
 	}
 
-	if err := tree.Insert(embedding, text); err != nil {
+	if err := tree.InsertWithRadius(embedding, text, metadata, radiusWord); err != nil {
 		return fmt.Errorf("insert error: %w", err)
 	}
 	client.dirty = true
@@ -253,4 +263,132 @@ func (client *Client) GetNodeCount() (int, error) {
 // GetDimensions returns the dimensionality of vectors in the database
 func (client *Client) GetDimensions() int {
 	return client.Dimensions
+}
+
+// SearchWithFilter finds similar vectors that match the filter criteria
+func (client *Client) SearchWithFilter(embedding []float32, epsilon float32, threshold float32, topK int, filter *hippotypes.Filter) ([]string, error) {
+	if len(embedding) != client.Dimensions {
+		return nil, fmt.Errorf("dimension mismatch: expected %d, got %d", client.Dimensions, len(embedding))
+	}
+
+	searchStart := time.Now()
+
+	tree, err := client.getTree()
+	if err != nil {
+		return nil, fmt.Errorf("tree loading error: %w", err)
+	}
+
+	results, err := tree.SearchWithFilter(embedding, epsilon, threshold, topK, filter)
+	if err != nil {
+		return nil, fmt.Errorf("search error: %w", err)
+	}
+
+	searchDuration := time.Since(searchStart)
+
+	values := make([]string, len(results))
+	for i, node := range results {
+		values[i] = node.Value
+	}
+
+	if client.verbose {
+		fmt.Printf("\nFound %d results (top %d, threshold %.2f, with filters):\n", len(results), topK, threshold)
+		for _, value := range values {
+			fmt.Printf("  %s\n", value)
+		}
+		fmt.Printf("TIMING:SEARCH:%.6fms\n", searchDuration.Seconds()*1000)
+	}
+
+	return values, nil
+}
+
+// SearchWithSemanticRadius searches using per-node radius words for adaptive matching
+func (client *Client) SearchWithSemanticRadius(embedding []float32, baseEpsilon float32, threshold float32, topK int, filter *hippotypes.Filter) ([]string, error) {
+	if len(embedding) != client.Dimensions {
+		return nil, fmt.Errorf("dimension mismatch: expected %d, got %d", client.Dimensions, len(embedding))
+	}
+
+	searchStart := time.Now()
+
+	tree, err := client.getTree()
+	if err != nil {
+		return nil, fmt.Errorf("tree loading error: %w", err)
+	}
+
+	results, err := tree.SearchWithSemanticRadius(embedding, baseEpsilon, threshold, topK, filter)
+	if err != nil {
+		return nil, fmt.Errorf("search error: %w", err)
+	}
+
+	searchDuration := time.Since(searchStart)
+
+	values := make([]string, len(results))
+	for i, node := range results {
+		values[i] = node.Value
+	}
+
+	if client.verbose {
+		fmt.Printf("\nFound %d results (top %d, threshold %.2f, semantic radius):\n", len(results), topK, threshold)
+		for i, node := range results {
+			radiusInfo := ""
+			if node.RadiusWord != "" {
+				radiusInfo = fmt.Sprintf(" [radius: %s]", node.RadiusWord)
+			}
+			fmt.Printf("  %s%s\n", values[i], radiusInfo)
+		}
+		fmt.Printf("TIMING:SEARCH:%.6fms\n", searchDuration.Seconds()*1000)
+	}
+
+	return values, nil
+}
+
+// BatchInsert efficiently inserts multiple vectors at once
+func (client *Client) BatchInsert(items []struct {
+	Embedding []float32
+	Text      string
+	Metadata  hippotypes.Metadata
+}) error {
+	batchStart := time.Now()
+
+	tree, err := client.getTree()
+	if err != nil {
+		return fmt.Errorf("tree loading error: %w", err)
+	}
+
+	// Ensure tree has correct dimensions
+	if tree.Dimensions == 0 {
+		tree.Dimensions = client.Dimensions
+		tree.Index = make([][]int32, client.Dimensions)
+	}
+
+	// Convert to tree's batch format
+	treeItems := make([]struct {
+		Key      []float32
+		Value    string
+		Metadata hippotypes.Metadata
+	}, len(items))
+
+	for i, item := range items {
+		if len(item.Embedding) != client.Dimensions {
+			return fmt.Errorf("item %d: dimension mismatch: expected %d, got %d", i, client.Dimensions, len(item.Embedding))
+		}
+		treeItems[i].Key = item.Embedding
+		treeItems[i].Value = item.Text
+		treeItems[i].Metadata = item.Metadata
+	}
+
+	if err := tree.BatchInsert(treeItems); err != nil {
+		return fmt.Errorf("batch insert error: %w", err)
+	}
+	client.dirty = true
+
+	batchDuration := time.Since(batchStart)
+
+	if client.verbose {
+		fmt.Printf("Batch inserted %d items in %.3fms (%.1f items/ms)\n",
+			len(items),
+			batchDuration.Seconds()*1000,
+			float64(len(items))/(batchDuration.Seconds()*1000))
+	}
+
+	return client.Flush()
 }

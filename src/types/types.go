@@ -3,12 +3,41 @@ package types
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"sort"
+	"sync"
+	"time"
 )
 
+type Metadata map[string]interface{}
+
+// RadiusMapping maps semantic words to epsilon values
+var RadiusMapping = map[string]float32{
+	"exact":   0.10, // Very tight matching
+	"precise": 0.15,
+	"similar": 0.25,
+	"related": 0.35,
+	"broad":   0.45,
+	"fuzzy":   0.60, // Very loose matching
+}
+
+// GetRadiusValue returns the epsilon value for a radius word, or default if not set
+func GetRadiusValue(radiusWord string, defaultEpsilon float32) float32 {
+	if radiusWord == "" {
+		return defaultEpsilon
+	}
+	if val, exists := RadiusMapping[radiusWord]; exists {
+		return val
+	}
+	return defaultEpsilon
+}
+
 type Node struct {
-	Key   []float32 // Variable dimensions
-	Value string
+	Key        []float32 // Variable dimensions
+	Value      string
+	Metadata   Metadata  // Flexible metadata
+	Timestamp  time.Time // When node was created
+	RadiusWord string    // Semantic radius: "exact", "similar", "broad", "fuzzy"
 }
 
 type Tree struct {
@@ -16,6 +45,38 @@ type Tree struct {
 	Nodes      []Node
 	Index      [][]int32   // Variable dimensions
 	indexDirty bool        // Track if indices need rebuilding
+}
+
+// Filter represents search constraints
+type Filter struct {
+	Metadata      map[string]interface{} // Key-value filters
+	TimestampFrom *time.Time             // Filter by time range
+	TimestampTo   *time.Time
+}
+
+// MatchesFilter checks if a node matches the filter criteria
+func (n *Node) MatchesFilter(f *Filter) bool {
+	if f == nil {
+		return true
+	}
+
+	// Check timestamp filters
+	if f.TimestampFrom != nil && n.Timestamp.Before(*f.TimestampFrom) {
+		return false
+	}
+	if f.TimestampTo != nil && n.Timestamp.After(*f.TimestampTo) {
+		return false
+	}
+
+	// Check metadata filters
+	for key, expectedValue := range f.Metadata {
+		actualValue, exists := n.Metadata[key]
+		if !exists || actualValue != expectedValue {
+			return false
+		}
+	}
+
+	return true
 }
 
 func NewTree(dimensions int) *Tree {
@@ -31,6 +92,14 @@ func NewTree(dimensions int) *Tree {
 }
 
 func (t *Tree) Insert(key []float32, value string) error {
+	return t.InsertWithMetadata(key, value, nil)
+}
+
+func (t *Tree) InsertWithMetadata(key []float32, value string, metadata Metadata) error {
+	return t.InsertWithRadius(key, value, metadata, "")
+}
+
+func (t *Tree) InsertWithRadius(key []float32, value string, metadata Metadata, radiusWord string) error {
 	if len(key) != t.Dimensions {
 		return fmt.Errorf("dimension mismatch: expected %d, got %d", t.Dimensions, len(key))
 	}
@@ -41,8 +110,11 @@ func (t *Tree) Insert(key []float32, value string) error {
 	copy(keyCopy, key)
 
 	node := Node{
-		Key:   keyCopy,
-		Value: value,
+		Key:        keyCopy,
+		Value:      value,
+		Metadata:   metadata,
+		Timestamp:  time.Now(),
+		RadiusWord: radiusWord,
 	}
 	t.Nodes = append(t.Nodes, node)
 
@@ -85,6 +157,10 @@ func (t *Tree) ensureIndex() {
 }
 
 func (t *Tree) Search(query []float32, epsilon float32, threshold float32, topK int) ([]Node, error) {
+	return t.SearchWithFilter(query, epsilon, threshold, topK, nil)
+}
+
+func (t *Tree) SearchWithFilter(query []float32, epsilon float32, threshold float32, topK int, filter *Filter) ([]Node, error) {
 	if len(query) != t.Dimensions {
 		return nil, fmt.Errorf("dimension mismatch: expected %d, got %d", t.Dimensions, len(query))
 	}
@@ -96,26 +172,8 @@ func (t *Tree) Search(query []float32, epsilon float32, threshold float32, topK 
 	// Ensure indices are built
 	t.ensureIndex()
 
-	// Preallocate candidate set with estimated size
-	candidateSet := make(map[int32]int, len(t.Nodes)/10)
-
-	for dim := 0; dim < t.Dimensions; dim++ {
-		minVal := query[dim] - epsilon
-		maxVal := query[dim] + epsilon
-
-		startIdx := sort.Search(len(t.Index[dim]), func(i int) bool {
-			return t.Nodes[t.Index[dim][i]].Key[dim] >= minVal
-		})
-
-		endIdx := sort.Search(len(t.Index[dim]), func(i int) bool {
-			return t.Nodes[t.Index[dim][i]].Key[dim] > maxVal
-		})
-
-		for i := startIdx; i < endIdx; i++ {
-			nodeIdx := t.Index[dim][i]
-			candidateSet[nodeIdx]++
-		}
-	}
+	// Parallel search across dimensions
+	candidateSet := t.parallelDimensionSearch(query, epsilon)
 
 	type scoredNode struct {
 		node     Node
@@ -128,16 +186,23 @@ func (t *Tree) Search(query []float32, epsilon float32, threshold float32, topK 
 
 	for nodeIdx, count := range candidateSet {
 		if count == t.Dimensions {
+			node := &t.Nodes[nodeIdx]
+
+			// Apply filter first (cheap check before distance calculation)
+			if !node.MatchesFilter(filter) {
+				continue
+			}
+
 			var sumSquares float32
 			for dim := 0; dim < t.Dimensions; dim++ {
-				diff := query[dim] - t.Nodes[nodeIdx].Key[dim]
+				diff := query[dim] - node.Key[dim]
 				sumSquares += diff * diff
 			}
 			distance := float32(math.Sqrt(float64(sumSquares)))
 
 			if distance <= maxAllowedDistance {
 				candidates = append(candidates, scoredNode{
-					node:     t.Nodes[nodeIdx],
+					node:     *node,
 					distance: distance,
 				})
 			}
@@ -167,4 +232,178 @@ func (t *Tree) Search(query []float32, epsilon float32, threshold float32, topK 
 	}
 
 	return results, nil
+}
+
+// SearchWithSemanticRadius searches using per-node radius words for adaptive matching
+// Uses a hybrid approach: global epsilon for candidate filtering, per-node radius for scoring
+func (t *Tree) SearchWithSemanticRadius(query []float32, baseEpsilon float32, threshold float32, topK int, filter *Filter) ([]Node, error) {
+	if len(query) != t.Dimensions {
+		return nil, fmt.Errorf("dimension mismatch: expected %d, got %d", t.Dimensions, len(query))
+	}
+
+	if len(t.Nodes) == 0 {
+		return nil, nil
+	}
+
+	// Ensure indices are built
+	t.ensureIndex()
+
+	// Phase 1: Use a broad epsilon for initial candidate filtering (parallel search)
+	// We use the maximum possible radius to catch all potential matches
+	broadEpsilon := float32(0.60) // Broadest radius ("fuzzy")
+	candidateSet := t.parallelDimensionSearch(query, broadEpsilon)
+
+	type scoredNode struct {
+		node          Node
+		distance      float32
+		adjustedScore float32
+	}
+
+	candidates := make([]scoredNode, 0, topK*2)
+
+	// Phase 2: Calculate distance and apply per-node radius scoring
+	for nodeIdx, count := range candidateSet {
+		if count == t.Dimensions {
+			node := &t.Nodes[nodeIdx]
+
+			// Apply filter first (cheap check)
+			if !node.MatchesFilter(filter) {
+				continue
+			}
+
+			// Calculate actual distance
+			var sumSquares float32
+			for dim := 0; dim < t.Dimensions; dim++ {
+				diff := query[dim] - node.Key[dim]
+				sumSquares += diff * diff
+			}
+			distance := float32(math.Sqrt(float64(sumSquares)))
+
+			// Get node's semantic radius
+			nodeRadius := GetRadiusValue(node.RadiusWord, baseEpsilon)
+
+			// Calculate adjusted score based on node's radius
+			// Nodes with tighter radius (e.g., "exact") effectively have higher distance
+			// This makes them rank higher only when the match is very close
+			adjustedScore := distance / nodeRadius
+
+			// Apply threshold based on adjusted score
+			maxAllowedScore := float32(1.0) / threshold
+			if adjustedScore <= maxAllowedScore {
+				candidates = append(candidates, scoredNode{
+					node:          *node,
+					distance:      distance,
+					adjustedScore: adjustedScore,
+				})
+			}
+		}
+	}
+
+	// Sort by adjusted score (lower is better)
+	if len(candidates) > 1 {
+		sort.Slice(candidates, func(i, j int) bool {
+			return candidates[i].adjustedScore < candidates[j].adjustedScore
+		})
+	}
+
+	limit := topK
+	if len(candidates) < topK {
+		limit = len(candidates)
+	}
+
+	results := make([]Node, limit)
+	for i := 0; i < limit; i++ {
+		results[i] = candidates[i].node
+	}
+
+	return results, nil
+}
+
+// parallelDimensionSearch searches dimensions in parallel for candidates
+func (t *Tree) parallelDimensionSearch(query []float32, epsilon float32) map[int32]int {
+	numWorkers := runtime.NumCPU()
+	if numWorkers > t.Dimensions {
+		numWorkers = t.Dimensions
+	}
+
+	candidateSet := make(map[int32]int, len(t.Nodes)/10)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	dimsPerWorker := (t.Dimensions + numWorkers - 1) / numWorkers
+
+	for worker := 0; worker < numWorkers; worker++ {
+		wg.Add(1)
+		start := worker * dimsPerWorker
+		end := start + dimsPerWorker
+		if end > t.Dimensions {
+			end = t.Dimensions
+		}
+
+		go func(startDim, endDim int) {
+			defer wg.Done()
+
+			localCandidates := make(map[int32]int, len(t.Nodes)/10)
+
+			for dim := startDim; dim < endDim; dim++ {
+				minVal := query[dim] - epsilon
+				maxVal := query[dim] + epsilon
+
+				startIdx := sort.Search(len(t.Index[dim]), func(i int) bool {
+					return t.Nodes[t.Index[dim][i]].Key[dim] >= minVal
+				})
+
+				endIdx := sort.Search(len(t.Index[dim]), func(i int) bool {
+					return t.Nodes[t.Index[dim][i]].Key[dim] > maxVal
+				})
+
+				for i := startIdx; i < endIdx; i++ {
+					nodeIdx := t.Index[dim][i]
+					localCandidates[nodeIdx]++
+				}
+			}
+
+			// Merge local results into global candidate set
+			mu.Lock()
+			for nodeIdx, count := range localCandidates {
+				candidateSet[nodeIdx] += count
+			}
+			mu.Unlock()
+		}(start, end)
+	}
+
+	wg.Wait()
+	return candidateSet
+}
+
+// BatchInsert inserts multiple nodes efficiently
+func (t *Tree) BatchInsert(items []struct {
+	Key      []float32
+	Value    string
+	Metadata Metadata
+}) error {
+	// Validate all dimensions first
+	for i, item := range items {
+		if len(item.Key) != t.Dimensions {
+			return fmt.Errorf("item %d: dimension mismatch: expected %d, got %d", i, t.Dimensions, len(item.Key))
+		}
+	}
+
+	// Add all nodes
+	for _, item := range items {
+		keyCopy := make([]float32, t.Dimensions)
+		copy(keyCopy, item.Key)
+
+		node := Node{
+			Key:       keyCopy,
+			Value:     item.Value,
+			Metadata:  item.Metadata,
+			Timestamp: time.Now(),
+		}
+		t.Nodes = append(t.Nodes, node)
+	}
+
+	// Rebuild indices once at the end
+	t.RebuildIndex()
+	return nil
 }

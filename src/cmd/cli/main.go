@@ -121,6 +121,9 @@ func handleInsert() {
 	vectorStr := insertCmd.String("vector", "", "vector as JSON array")
 	text := insertCmd.String("text", "", "text to store")
 
+	// Semantic radius flag
+	radiusWord := insertCmd.String("radius", "", "semantic radius: exact|precise|similar|related|broad|fuzzy")
+
 	// Embedding provider flags
 	useOllama := insertCmd.Bool("ollama", false, "use Ollama for embeddings")
 	ollamaURL := insertCmd.String("ollama-url", "http://localhost:11434", "Ollama server URL")
@@ -160,7 +163,7 @@ func handleInsert() {
 		log.Fatal("Either provide -vector or use -ollama/-llama-cpp for local embeddings")
 	}
 
-	if err := c.Insert(vector, *text); err != nil {
+	if err := c.InsertWithRadius(vector, *text, nil, *radiusWord); err != nil {
 		log.Fatalf("Insert failed: %v", err)
 	}
 
@@ -178,6 +181,7 @@ func handleSearch() {
 	epsilon := searchCmd.Float64("epsilon", 0.3, "search radius")
 	threshold := searchCmd.Float64("threshold", 0.5, "similarity threshold")
 	topK := searchCmd.Int("top-k", 5, "max results")
+	useSemanticRadius := searchCmd.Bool("semantic", false, "use per-node semantic radius")
 
 	// Embedding provider flags
 	useOllama := searchCmd.Bool("ollama", false, "use Ollama for embeddings")
@@ -229,7 +233,11 @@ func handleSearch() {
 		log.Fatal("Either -vector or -text (with embedding provider) is required")
 	}
 
-	_, err = c.Search(vector, float32(*epsilon), float32(*threshold), *topK)
+	if *useSemanticRadius {
+		_, err = c.SearchWithSemanticRadius(vector, float32(*epsilon), float32(*threshold), *topK, nil)
+	} else {
+		_, err = c.Search(vector, float32(*epsilon), float32(*threshold), *topK)
+	}
 	if err != nil {
 		log.Fatalf("Search failed: %v", err)
 	}
