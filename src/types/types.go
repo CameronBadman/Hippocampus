@@ -33,11 +33,10 @@ func GetRadiusValue(radiusWord string, defaultEpsilon float32) float32 {
 }
 
 type Node struct {
-	Key        []float32 // Variable dimensions
-	Value      string
-	Metadata   Metadata  // Flexible metadata
-	Timestamp  time.Time // When node was created
-	RadiusWord string    // Semantic radius: "exact", "similar", "broad", "fuzzy"
+	Key       []float32 // Variable dimensions
+	Value     string
+	Metadata  Metadata  // Flexible metadata
+	Timestamp time.Time // When node was created
 }
 
 type Tree struct {
@@ -96,10 +95,6 @@ func (t *Tree) Insert(key []float32, value string) error {
 }
 
 func (t *Tree) InsertWithMetadata(key []float32, value string, metadata Metadata) error {
-	return t.InsertWithRadius(key, value, metadata, "")
-}
-
-func (t *Tree) InsertWithRadius(key []float32, value string, metadata Metadata, radiusWord string) error {
 	if len(key) != t.Dimensions {
 		return fmt.Errorf("dimension mismatch: expected %d, got %d", t.Dimensions, len(key))
 	}
@@ -110,11 +105,10 @@ func (t *Tree) InsertWithRadius(key []float32, value string, metadata Metadata, 
 	copy(keyCopy, key)
 
 	node := Node{
-		Key:        keyCopy,
-		Value:      value,
-		Metadata:   metadata,
-		Timestamp:  time.Now(),
-		RadiusWord: radiusWord,
+		Key:       keyCopy,
+		Value:     value,
+		Metadata:  metadata,
+		Timestamp: time.Now(),
 	}
 	t.Nodes = append(t.Nodes, node)
 
@@ -218,91 +212,6 @@ func (t *Tree) SearchWithFilter(query []float32, epsilon float32, threshold floa
 		// For small result sets, still sort
 		sort.Slice(candidates, func(i, j int) bool {
 			return candidates[i].distance < candidates[j].distance
-		})
-	}
-
-	limit := topK
-	if len(candidates) < topK {
-		limit = len(candidates)
-	}
-
-	results := make([]Node, limit)
-	for i := 0; i < limit; i++ {
-		results[i] = candidates[i].node
-	}
-
-	return results, nil
-}
-
-// SearchWithSemanticRadius searches using per-node radius words for adaptive matching
-// Uses a hybrid approach: global epsilon for candidate filtering, per-node radius for scoring
-func (t *Tree) SearchWithSemanticRadius(query []float32, baseEpsilon float32, threshold float32, topK int, filter *Filter) ([]Node, error) {
-	if len(query) != t.Dimensions {
-		return nil, fmt.Errorf("dimension mismatch: expected %d, got %d", t.Dimensions, len(query))
-	}
-
-	if len(t.Nodes) == 0 {
-		return nil, nil
-	}
-
-	// Ensure indices are built
-	t.ensureIndex()
-
-	// Phase 1: Use a broad epsilon for initial candidate filtering (parallel search)
-	// We use the maximum possible radius to catch all potential matches
-	broadEpsilon := float32(0.60) // Broadest radius ("fuzzy")
-	candidateSet := t.parallelDimensionSearch(query, broadEpsilon)
-
-	type scoredNode struct {
-		node          Node
-		distance      float32
-		adjustedScore float32
-	}
-
-	candidates := make([]scoredNode, 0, topK*2)
-
-	// Phase 2: Calculate distance and apply per-node radius scoring
-	for nodeIdx, count := range candidateSet {
-		if count == t.Dimensions {
-			node := &t.Nodes[nodeIdx]
-
-			// Apply filter first (cheap check)
-			if !node.MatchesFilter(filter) {
-				continue
-			}
-
-			// Calculate actual distance
-			var sumSquares float32
-			for dim := 0; dim < t.Dimensions; dim++ {
-				diff := query[dim] - node.Key[dim]
-				sumSquares += diff * diff
-			}
-			distance := float32(math.Sqrt(float64(sumSquares)))
-
-			// Get node's semantic radius
-			nodeRadius := GetRadiusValue(node.RadiusWord, baseEpsilon)
-
-			// Calculate adjusted score based on node's radius
-			// Nodes with tighter radius (e.g., "exact") effectively have higher distance
-			// This makes them rank higher only when the match is very close
-			adjustedScore := distance / nodeRadius
-
-			// Apply threshold based on adjusted score
-			maxAllowedScore := float32(1.0) / threshold
-			if adjustedScore <= maxAllowedScore {
-				candidates = append(candidates, scoredNode{
-					node:          *node,
-					distance:      distance,
-					adjustedScore: adjustedScore,
-				})
-			}
-		}
-	}
-
-	// Sort by adjusted score (lower is better)
-	if len(candidates) > 1 {
-		sort.Slice(candidates, func(i, j int) bool {
-			return candidates[i].adjustedScore < candidates[j].adjustedScore
 		})
 	}
 

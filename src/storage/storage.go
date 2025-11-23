@@ -140,17 +140,6 @@ func writeNode(w io.Writer, n *types.Node) error {
 		}
 	}
 
-	// Write radius word
-	radiusWordBytes := []byte(n.RadiusWord)
-	if err := binary.Write(w, binary.LittleEndian, int32(len(radiusWordBytes))); err != nil {
-		return err
-	}
-	if len(radiusWordBytes) > 0 {
-		if _, err := w.Write(radiusWordBytes); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -214,20 +203,6 @@ func readNode(r io.Reader, n *types.Node, dimensions int) error {
 		if err := json.Unmarshal(metadataBytes, &n.Metadata); err != nil {
 			return err
 		}
-	}
-
-	// Read radius word (optional for backwards compatibility)
-	var radiusWordLen int32
-	if err := binary.Read(r, binary.LittleEndian, &radiusWordLen); err != nil {
-		// Backwards compatibility: if no radius word section, just return
-		return nil
-	}
-	if radiusWordLen > 0 {
-		radiusWordBytes := make([]byte, radiusWordLen)
-		if _, err := io.ReadFull(r, radiusWordBytes); err != nil {
-			return err
-		}
-		n.RadiusWord = string(radiusWordBytes)
 	}
 
 	return nil

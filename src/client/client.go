@@ -86,11 +86,6 @@ func (client *Client) Insert(embedding []float32, text string) error {
 
 // InsertWithMetadata adds a vector with metadata to the database
 func (client *Client) InsertWithMetadata(embedding []float32, text string, metadata hippotypes.Metadata) error {
-	return client.InsertWithRadius(embedding, text, metadata, "")
-}
-
-// InsertWithRadius adds a vector with metadata and a semantic radius word to the database
-func (client *Client) InsertWithRadius(embedding []float32, text string, metadata hippotypes.Metadata, radiusWord string) error {
 	if len(embedding) != client.Dimensions {
 		return fmt.Errorf("dimension mismatch: expected %d, got %d", client.Dimensions, len(embedding))
 	}
@@ -108,7 +103,7 @@ func (client *Client) InsertWithRadius(embedding []float32, text string, metadat
 		tree.Index = make([][]int32, client.Dimensions)
 	}
 
-	if err := tree.InsertWithRadius(embedding, text, metadata, radiusWord); err != nil {
+	if err := tree.InsertWithMetadata(embedding, text, metadata); err != nil {
 		return fmt.Errorf("insert error: %w", err)
 	}
 	client.dirty = true
@@ -294,46 +289,6 @@ func (client *Client) SearchWithFilter(embedding []float32, epsilon float32, thr
 		fmt.Printf("\nFound %d results (top %d, threshold %.2f, with filters):\n", len(results), topK, threshold)
 		for _, value := range values {
 			fmt.Printf("  %s\n", value)
-		}
-		fmt.Printf("TIMING:SEARCH:%.6fms\n", searchDuration.Seconds()*1000)
-	}
-
-	return values, nil
-}
-
-// SearchWithSemanticRadius searches using per-node radius words for adaptive matching
-func (client *Client) SearchWithSemanticRadius(embedding []float32, baseEpsilon float32, threshold float32, topK int, filter *hippotypes.Filter) ([]string, error) {
-	if len(embedding) != client.Dimensions {
-		return nil, fmt.Errorf("dimension mismatch: expected %d, got %d", client.Dimensions, len(embedding))
-	}
-
-	searchStart := time.Now()
-
-	tree, err := client.getTree()
-	if err != nil {
-		return nil, fmt.Errorf("tree loading error: %w", err)
-	}
-
-	results, err := tree.SearchWithSemanticRadius(embedding, baseEpsilon, threshold, topK, filter)
-	if err != nil {
-		return nil, fmt.Errorf("search error: %w", err)
-	}
-
-	searchDuration := time.Since(searchStart)
-
-	values := make([]string, len(results))
-	for i, node := range results {
-		values[i] = node.Value
-	}
-
-	if client.verbose {
-		fmt.Printf("\nFound %d results (top %d, threshold %.2f, semantic radius):\n", len(results), topK, threshold)
-		for i, node := range results {
-			radiusInfo := ""
-			if node.RadiusWord != "" {
-				radiusInfo = fmt.Sprintf(" [radius: %s]", node.RadiusWord)
-			}
-			fmt.Printf("  %s%s\n", values[i], radiusInfo)
 		}
 		fmt.Printf("TIMING:SEARCH:%.6fms\n", searchDuration.Seconds()*1000)
 	}
