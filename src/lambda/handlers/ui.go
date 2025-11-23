@@ -6,16 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/ioutil"
+	"io"
 	"net/http"
-	"net/url"
+	"os"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 )
 
-const apiEndpoint = "https://rbf04f5hud.execute-api.ap-southeast-2.amazonaws.com"
-
+var apiEndpoint = os.Getenv("API_ENDPOINT") // <-- dynamically from env
 
 var tpl = template.Must(template.New("index").Parse(`
 <!DOCTYPE html>
@@ -32,7 +31,6 @@ var tpl = template.Must(template.New("index").Parse(`
 	button:hover { background-color: #2980b9; transform: scale(1.05); }
 	pre { background: #ecf0f1; padding: 10px; border-radius: 5px; overflow-x: auto; min-height: 50px; transition: transform 0.3s ease, opacity 0.3s ease; }
 
-	/* Bounce animation */
 	@keyframes bounce {
 		0% { transform: translateY(0); }
 		25% { transform: translateY(-10px); }
@@ -41,9 +39,7 @@ var tpl = template.Must(template.New("index").Parse(`
 		100% { transform: translateY(0); }
 	}
 
-	.result-bounce {
-		animation: bounce 0.5s;
-	}
+	.result-bounce { animation: bounce 0.5s; }
 </style>
 </head>
 <body>
@@ -81,7 +77,7 @@ function showResult(text) {
 	const resultEl = document.getElementById('result');
 	resultEl.textContent = text;
 	resultEl.classList.remove('result-bounce');
-	void resultEl.offsetWidth; // trigger reflow
+	void resultEl.offsetWidth;
 	resultEl.classList.add('result-bounce');
 }
 
@@ -108,12 +104,9 @@ document.getElementById('safetyForm').addEventListener('submit', async e => {
 	showResult(result);
 });
 </script>
-
 </body>
 </html>
 `))
-
-
 
 type SafetyRequest struct {
 	AgentID string `json:"agent_id"`
@@ -124,57 +117,41 @@ type UIData struct {
 	Result string
 }
 
-func (h *Handler) HandleUI(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// GET request → render empty page
+func (h *Handler)  HandleUI(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	if strings.ToUpper(request.HTTPMethod) == "GET" {
 		var buf bytes.Buffer
 		tpl.Execute(&buf, nil)
 		return events.APIGatewayProxyResponse{
 			StatusCode: 200,
 			Body:       buf.String(),
-			Headers: map[string]string{
-				"Content-Type": "text/html",
-			},
+			Headers:    map[string]string{"Content-Type": "text/html"},
 		}, nil
-	}
-
-	// POST → parse form values (application/x-www-form-urlencoded)
-	values := map[string]string{}
-	for _, pair := range strings.Split(request.Body, "&") {
-		kv := strings.SplitN(pair, "=", 2)
-		if len(kv) == 2 {
-			key, _ := url.QueryUnescape(kv[0])
-			val, _ := url.QueryUnescape(kv[1])
-			values[key] = val
-		}
 	}
 
 	var endpoint string
 	var payload []byte
+
 	switch request.Path {
 	case "/insert":
-		req := InsertRequest{
-			AgentID: values["agent_id"],
-			Key:     values["key"],
-			Text:    values["text"],
+		var req InsertRequest
+		if err := json.Unmarshal([]byte(request.Body), &req); err != nil {
+			return events.APIGatewayProxyResponse{StatusCode: 400, Body: "Invalid JSON"}, nil
 		}
 		payload, _ = json.Marshal(req)
 		endpoint = apiEndpoint + "/insert"
+
 	case "/agent-safety":
-		req := SafetyRequest{
-			AgentID: values["agent_id"],
-			Message: values["message"],
+		var req SafetyRequest
+		if err := json.Unmarshal([]byte(request.Body), &req); err != nil {
+			return events.APIGatewayProxyResponse{StatusCode: 400, Body: "Invalid JSON"}, nil
 		}
 		payload, _ = json.Marshal(req)
 		endpoint = apiEndpoint + "/agent-safety"
+
 	default:
-		return events.APIGatewayProxyResponse{
-			StatusCode: 404,
-			Body:       "Unknown endpoint",
-		}, nil
+		return events.APIGatewayProxyResponse{StatusCode: 404, Body: "Unknown endpoint"}, nil
 	}
 
-	// Call backend
 	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return events.APIGatewayProxyResponse{
@@ -184,15 +161,14 @@ func (h *Handler) HandleUI(ctx context.Context, request events.APIGatewayProxyRe
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	var buf bytes.Buffer
 	tpl.Execute(&buf, UIData{Result: string(body)})
 
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Body:       buf.String(),
-		Headers: map[string]string{
-			"Content-Type": "text/html",
-		},
+		Headers:    map[string]string{"Content-Type": "text/html"},
 	}, nil
 }
+

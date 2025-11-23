@@ -3,6 +3,7 @@ package storage
 import (
 	"Hippocampus/src/types"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 )
@@ -22,6 +23,12 @@ func (fs *FileStorage) Save(t *types.Tree) error {
 	}
 	defer f.Close()
 
+	// Write dimensions first
+	if err := binary.Write(f, binary.LittleEndian, int32(t.Dimensions)); err != nil {
+		return err
+	}
+
+	// Write node count
 	if err := binary.Write(f, binary.LittleEndian, int64(len(t.Nodes))); err != nil {
 		return err
 	}
@@ -39,10 +46,7 @@ func (fs *FileStorage) Load() (*types.Tree, error) {
 	f, err := os.Open(fs.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &types.Tree{
-				Nodes: []types.Node{},
-				Index: [512][]int32{},
-			}, nil
+			return types.NewTree(512), nil // Default dimensions
 		}
 		return nil, err
 	}
@@ -54,24 +58,26 @@ func (fs *FileStorage) Load() (*types.Tree, error) {
 	}
 
 	if info.Size() == 0 {
-		return &types.Tree{
-			Nodes: []types.Node{},
-			Index: [512][]int32{},
-		}, nil
+		return types.NewTree(512), nil // Default dimensions
 	}
 
+	// Read dimensions first
+	var dimensions int32
+	if err := binary.Read(f, binary.LittleEndian, &dimensions); err != nil {
+		return nil, err
+	}
+
+	// Read node count
 	var nodeCount int64
 	if err := binary.Read(f, binary.LittleEndian, &nodeCount); err != nil {
 		return nil, err
 	}
 
-	t := &types.Tree{
-		Nodes: make([]types.Node, nodeCount),
-		Index: [512][]int32{},
-	}
+	t := types.NewTree(int(dimensions))
+	t.Nodes = make([]types.Node, nodeCount)
 
 	for i := range t.Nodes {
-		if err := readNode(f, &t.Nodes[i]); err != nil {
+		if err := readNode(f, &t.Nodes[i], int(dimensions)); err != nil {
 			return nil, err
 		}
 	}
@@ -82,10 +88,19 @@ func (fs *FileStorage) Load() (*types.Tree, error) {
 }
 
 func writeNode(w io.Writer, n *types.Node) error {
-	if err := binary.Write(w, binary.LittleEndian, n.Key); err != nil {
+	// Write dimension count
+	if err := binary.Write(w, binary.LittleEndian, int32(len(n.Key))); err != nil {
 		return err
 	}
 
+	// Write vector
+	for _, val := range n.Key {
+		if err := binary.Write(w, binary.LittleEndian, val); err != nil {
+			return err
+		}
+	}
+
+	// Write value
 	valueBytes := []byte(n.Value)
 	if err := binary.Write(w, binary.LittleEndian, int64(len(valueBytes))); err != nil {
 		return err
@@ -95,11 +110,26 @@ func writeNode(w io.Writer, n *types.Node) error {
 	return err
 }
 
-func readNode(r io.Reader, n *types.Node) error {
-	if err := binary.Read(r, binary.LittleEndian, &n.Key); err != nil {
+func readNode(r io.Reader, n *types.Node, dimensions int) error {
+	// Read dimension count (for validation)
+	var dimCount int32
+	if err := binary.Read(r, binary.LittleEndian, &dimCount); err != nil {
 		return err
 	}
 
+	if int(dimCount) != dimensions {
+		return fmt.Errorf("dimension mismatch in file: expected %d, got %d", dimensions, dimCount)
+	}
+
+	// Read vector
+	n.Key = make([]float32, dimensions)
+	for i := 0; i < dimensions; i++ {
+		if err := binary.Read(r, binary.LittleEndian, &n.Key[i]); err != nil {
+			return err
+		}
+	}
+
+	// Read value
 	var valueLen int64
 	if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
 		return err

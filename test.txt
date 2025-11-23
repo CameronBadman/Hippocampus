@@ -1,0 +1,17 @@
+/2] Hippocampus at 1000 nodes
+  Inserting 1000 nodes...
+  ✓ Insert: 85.5ms avg (total: 85.529756432s)
+  Searching 20 queries...
+  ✓ Search: 93.2ms avg
+
+[2/2] FAISS at 1000 nodes
+Generating 1000 embeddings...
+✓ Embeddings: 91.4ms avg (total: 91.4s)
+Building FAISS index...
+✓ Index built
+Running 5 searches...
+✓ Search: 138.3ms avg
+
+
+
+

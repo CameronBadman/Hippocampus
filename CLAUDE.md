@@ -268,14 +268,34 @@ After insert, we `go m.s3Sync.Upload()` in goroutine. Lambda response returns im
 - **VPC networking**: Lambda must be in private subnet with NAT Gateway for Bedrock access
 - **File size**: ~10MB per 5k nodes. Monitor EFS usage at scale.
 
-## Performance Benchmarks (5k nodes per agent)
+## Performance Benchmarks
+
+### Production Performance (5k nodes per agent)
 
 - **File size**: ~10MB
 - **RAM usage**: ~20MB in Lambda (warm)
 - **Cold start**: ~200ms (load + index rebuild)
-- **Search**: <50ms (warm)
+- **Search**: ~100ms total (95ms Bedrock API + 5ms everything else)
 - **Insert**: ~100ms (includes Bedrock embedding call)
 - **Cost**: ~$0.00012 per memory operation
+
+### Algorithm Performance vs FAISS
+
+**Pure search speed (excluding Bedrock API & I/O):**
+
+| Nodes | Hippocampus | FAISS IndexFlatL2 | Speedup |
+|-------|-------------|-------------------|---------|
+| 1,000 | 0.49 μs | 283 μs | **583x faster** |
+| 5,000 | 0.20 μs | 1,095 μs | **5,368x faster** |
+| 10,000 | 0.47 μs | 1,975 μs | **4,247x faster** |
+
+**Key findings:**
+- O(512 log n) binary search beats O(n) brute force at agent scale
+- Sub-microsecond pure algorithm performance (0.2-0.5 μs)
+- FAISS shows perfect linear scaling, Hippocampus stays constant
+- Bedrock API latency (~95ms) dominates production queries, making algorithm difference negligible in total time
+
+**See [faiss-comparison/BENCHMARK_RESULTS.md](faiss-comparison/BENCHMARK_RESULTS.md) for full analysis, methodology, and mathematical proof.**
 
 ## Design Philosophy
 

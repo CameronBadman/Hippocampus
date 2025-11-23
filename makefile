@@ -20,10 +20,35 @@ clean:
 test:
 	go test ./src/...
 
-deploy: build-lambda
-	@echo "Deploying to AWS..."
+
+PYTHON_LAMBDAS := agent-curate safety-agent
+LAMBDA_SRC_DIR := src/lambda
+LAMBDA_BUILD_DIR := src/lambda/lambda-packages
+TERRAFORM_LAMBDA_DIR := terraform/lambda-packages
+
+
+build-python-lambdas:
+	@echo "📦 Building Python Lambda packages..."
+	@mkdir -p $(TERRAFORM_LAMBDA_DIR)
+	@for lambda in $(PYTHON_LAMBDAS); do \
+		echo "→ Packaging $$lambda ..."; \
+		PACKAGE_DIR="$(LAMBDA_BUILD_DIR)/$$lambda"; \
+		rm -rf $$PACKAGE_DIR; \
+		mkdir -p $$PACKAGE_DIR; \
+		cp $(LAMBDA_SRC_DIR)/$${lambda//-/_}_lambda.py $$PACKAGE_DIR/handler.py; \
+		echo "requests" > $$PACKAGE_DIR/requirements.txt; \
+		pip install -q --upgrade -r $$PACKAGE_DIR/requirements.txt --target $$PACKAGE_DIR; \
+		cd $$PACKAGE_DIR && zip -rq $(abspath $(TERRAFORM_LAMBDA_DIR))/$$lambda.zip . && cd - >/dev/null; \
+		echo "✓ Built $(TERRAFORM_LAMBDA_DIR)/$$lambda.zip"; \
+	done
+
+
+clean-python-lambdas:
+	@echo "🧹 Cleaning Python Lambda build artifacts..."
+	rm -rf $(LAMBDA_BUILD_DIR) $(TERRAFORM_LAMBDA_DIR)/*.zip
+
+# Include Python Lambda packaging in full deploy pipeline
+deploy: build-lambda build-python-lambdas
+	@echo "🚀 Deploying to AWS with Terraform..."
 	cd terraform && terraform apply
 
-all: build-cli build-lambda
-
-.DEFAULT_GOAL := build-cli
